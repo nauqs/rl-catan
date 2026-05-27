@@ -9,9 +9,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
-from catan_rl.training.ppo import train
-from catan_rl.utils.config import load_yaml
+# Ensure the repo root is importable regardless of CWD or how this script is invoked
+# (uv's editable install ships a .pth file that this venv doesn't auto-process).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from catan_rl.training.ppo import train  # noqa: E402
+from catan_rl.utils.config import load_yaml  # noqa: E402
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:

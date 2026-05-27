@@ -6,15 +6,19 @@ mean fps, and prints the recommended `train.device` for `configs/phase1.yaml`.
 from __future__ import annotations
 
 import argparse
+import sys
 import time
+from pathlib import Path
 from typing import Iterable
 
-import torch
-from sb3_contrib import MaskablePPO
-from stable_baselines3.common.vec_env import SubprocVecEnv
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from catan_rl.features.board_cnn import BoardCNN
-from catan_rl.training.env_factory import make_env
+import torch  # noqa: E402
+from sb3_contrib import MaskablePPO  # noqa: E402
+from stable_baselines3.common.vec_env import SubprocVecEnv  # noqa: E402
+
+from catan_rl.features.board_cnn import BoardCNN  # noqa: E402
+from catan_rl.training.env_factory import make_env  # noqa: E402
 
 
 def _make_venv(n_envs: int) -> SubprocVecEnv:

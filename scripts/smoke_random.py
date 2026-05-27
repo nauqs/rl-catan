@@ -1,11 +1,16 @@
 """End-to-end smoke check: random policy plays one 1v1 and one 4-player game."""
 from __future__ import annotations
 
-import gymnasium as gym
-import numpy as np
+import sys
+from pathlib import Path
 
-import catanatron.gym  # noqa: F401  -- registers "catanatron/Catanatron-v0"
-from catanatron import Color, RandomPlayer
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import gymnasium as gym  # noqa: E402
+import numpy as np  # noqa: E402
+
+import catanatron.gym  # noqa: F401,E402  -- registers "catanatron/Catanatron-v0"
+from catanatron import Color, RandomPlayer  # noqa: E402
 
 
 def play_one(env: gym.Env, seed: int) -> tuple[float, int]:
