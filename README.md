@@ -90,17 +90,19 @@ The eval harness is built once in Phase 0 and reused unchanged for the rest of t
 **Goal.** Train a vanilla MaskablePPO baseline end-to-end and measure where it lands on the full benchmark ladder. There is no predetermined winrate target — Phase 1's output is *data*, not strength. It tells us where the simple version saturates, which informs everything in Phase 2.
 
 **Setup**
-- MaskablePPO with default MLP policy
-- Default Catanatron observation features (whatever the built-in feature vector gives us)
-- Flat `Discrete(~290)` action space with masking via `ActionMasker`
-- Start with 1v1 vs `RandomPlayer` as the training opponent. 4-player is fair game later in the phase if 1v1 looks healthy.
-- Reward = Catanatron's default (+1 win / -1 loss). Reward shaping is a Phase 2 lever, not a Phase 1 one.
+- MaskablePPO with a small custom `BoardCNN` feature extractor (not the default `[64,64]` MLP — that's too small to do anything interesting against the stronger benchmark bots).
+- Catanatron's `representation="mixed"` observation: `{board: (channels, 21, 11) hex-grid tensor, numeric: (~48,) global features}`. Built into the env, zero feature-engineering on our side.
+- Architecture (~600–800k params): 3 conv layers on the board (16→32→64→128 channels, 3×3 same-padding, ReLU) → global average pool → linear to 256; numeric branch is `48 → 256 → 256`; concat → 512-dim features → SB3 default `[256,256]` actor + critic heads. The board branch is a clean drop-in point for Phase 2 to swap in tile self-attention if the CNN plateaus.
+- Flat `Discrete(332)` action space with masking via `MaskablePPO`'s built-in `action_masks()` hook (the `NoTradeWrapper` zeroes out the 60 `MARITIME_TRADE` indices).
+- 1v1 vs `WeightedRandomPlayer` as the training opponent. Plain `RandomPlayer` is too weak (rarely punishes positional mistakes, so the agent plateaus low); `ValueFunctionPlayer` / `AlphaBeta` are too strong (sparse ±1 collapses to all-losses, gradient dies). Weighted picks randomly most of the time but actually buys cities/settlements/dev-cards when it can — enough opposition to force real positional play, zero extra infra. Self-play and league training stay in Phase 2.
+- Charlesworth-style reward shaping, his exact values (from `settlers_of_catan_RL/env/wrapper.py`): **+500** terminal win (loss = 0, positive-only), **+5** per VP gained, **+5** for playing any development card, **+1** for moving the robber, **−0.3** per forced discard, **+2.5** additional bonus for upgrading to a city (on top of the +5 from the VP delta, so cities = +7.5 total — deliberately biases toward city upgrades). Replaces Catanatron's default ±1 entirely. Implemented as `ShapedRewardWrapper`. Dense-reward annealing (Charlesworth's `reward_annealing_factor`) is also wired — linear taper of dense rewards from 1.0 → 0.0 between two configurable env-step bounds; terminal +500 is unaffected. Defaults are `-1` (disabled, matching his defaults); flipping `anneal_start_step` / `anneal_end_step` to positive values enables it.
 - Reasonable PPO starting hyperparameters: SB3 defaults with `gamma=0.999`, `gae_lambda=0.95`, `n_steps=2048`, `batch_size=512`, `ent_coef=0.01`
 
 **Tasks**
-- Wire up MaskablePPO with `SubprocVecEnv` (the action mask has to live inside the env, not in a wrapper, when using SubprocVecEnv)
-- Profile CPU vs MPS — for small MLPs, PPO is typically env-step-bound rather than network-bound, so CPU + many parallel envs usually wins on M3 Pro. Profile before committing.
-- Train, checkpoint frequently, run the full ladder eval at each checkpoint in both 1v1 and 4-player
+- Wire up MaskablePPO with `SubprocVecEnv` (`NoTradeWrapper` exposes `action_masks()` on the env so SubprocVecEnv can reach it via `env_method`)
+- CPU vs MPS profiled (`scripts/profile_device.py`): with the BoardCNN architecture on M3 Pro, MPS wins decisively — ~397 steps/sec vs ~130 on CPU (3× speedup). `configs/phase1.yaml` defaults to `device: mps`. The MPS gain comes from the conv ops being big enough that per-call shipping overhead amortizes; for the original 50k-param MLP it would have been the opposite.
+- Train (10M timesteps minimum, ~5–15h on M3 Pro CPU), checkpoint every ~100k steps, run a lightweight ladder eval (Random + Weighted + Value, 20 games each) every ~50k steps during training, then a full 500-game × 5-opponent × 1v1 ladder at the end
+- Crash-safe resume: each run dir holds `model.zip` + `wandb_run_id.txt` so `scripts/train.py --resume` reloads the policy and reattaches the same W&B run (`resume="must"`) — the plot continues unbroken
 - Document where the baseline plateaus and what the agent's failure modes look like — settlement placement quality, robber behaviour, dev card play, dice-roll handling, etc.
 
 **Deliverables**

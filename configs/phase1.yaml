@@ -1,0 +1,42 @@
+seed: 0
+run_name: phase1-baseline
+
+env:
+  map_type: BASE
+  representation: mixed         # Dict obs: board (C, 21, 11) + numeric (~48,)
+
+train:
+  total_timesteps: 10_000_000
+  n_envs: 8                     # M3 Pro; leave headroom for system
+  device: mps                   # set by scripts/profile_device.py: 397 sps vs 130 cpu
+  opponent: weighted            # one of: random, weighted
+  reward:
+    enabled: true               # Charlesworth-style shaping; false = Catanatron default ±1
+    anneal_start_step: -1       # -1 disabled; e.g. 5_000_000 to start tapering at step 5M
+    anneal_end_step: -1         # -1 disabled; e.g. 9_000_000 to reach pure-sparse at step 9M
+  ppo:
+    gamma: 0.999
+    gae_lambda: 0.95
+    n_steps: 2048
+    batch_size: 512
+    ent_coef: 0.01
+    learning_rate: 3.0e-4
+    n_epochs: 10
+    clip_range: 0.2
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+  checkpoint_every: 100_000     # env-step granularity; rounds to nearest n_envs*n_steps
+
+eval:
+  callback_opponents: [random, weighted, value]
+  callback_games: 20
+  callback_every: 50_000
+  run_final_ladder: true
+  final_opponents: [random, weighted, value, alphabeta1, alphabeta2]
+  final_games: 500
+  final_modes: ["1v1"]
+
+wandb:
+  project: catan-rl
+  mode: online
+  entity: null
