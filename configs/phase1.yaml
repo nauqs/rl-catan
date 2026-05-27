@@ -6,7 +6,7 @@ env:
   representation: mixed         # Dict obs: board (C, 21, 11) + numeric (~48,)
 
 train:
-  total_timesteps: 10_000_000
+  total_timesteps: 50_000_000
   n_envs: 8                     # M3 Pro; leave headroom for system
   device: mps                   # set by scripts/profile_device.py: 397 sps vs 130 cpu
   opponent: weighted            # one of: random, weighted

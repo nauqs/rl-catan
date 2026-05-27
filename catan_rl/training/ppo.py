@@ -90,6 +90,7 @@ def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
                 resume="must",
                 mode=cfg.wandb.mode,
                 config=cfg.model_dump(),
+                sync_tensorboard=True,
             )
         else:
             run_id = wandb.util.generate_id()
@@ -100,6 +101,7 @@ def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
                 name=cfg.run_name,
                 mode=cfg.wandb.mode,
                 config=cfg.model_dump(),
+                sync_tensorboard=True,
             )
             run_id_path.write_text(run_id)
         wandb_callback = WandbCallback(verbose=0)
@@ -130,6 +132,7 @@ def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
             vf_coef=cfg.train.ppo.vf_coef,
             max_grad_norm=cfg.train.ppo.max_grad_norm,
             policy_kwargs=policy_kwargs,
+            tensorboard_log=str(run_dir / "tb"),
             device=cfg.train.device,
             verbose=1,
         )

@@ -13,6 +13,7 @@ dependencies = [
     "pyyaml",
     "wandb",
     "tqdm",
+    "tensorboard>=2.20.0",
 ]
 
 [dependency-groups]
