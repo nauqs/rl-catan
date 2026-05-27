@@ -1,0 +1,17 @@
+# Default Phase 0 / Phase 1 config. Anything not listed falls back to BaseConfig defaults.
+seed: 0
+
+env:
+  map_type: BASE
+  representation: vector
+  vps_to_win: 10
+
+eval:
+  games: 20
+  modes: ["1v1", "4p"]
+  opponents: ["random", "weighted", "value", "alphabeta1", "alphabeta2"]
+
+wandb:
+  project: catan-rl
+  mode: online   # one of: online | offline | disabled
+  entity: null
