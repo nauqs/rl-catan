@@ -4,8 +4,18 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
-checkpoints/
+
+checkpoints/**
 wandb/
 *.json
-!configs/*.json
 .DS_Store
+
+# Allow specific Phase-N artifacts back in: README, plots, ladder + analysis JSONs.
+!configs/*.json
+!checkpoints/
+!checkpoints/**/
+!checkpoints/**/README.md
+!checkpoints/**/plots/
+!checkpoints/**/plots/**
+!checkpoints/**/final_ladder.json
+!checkpoints/**/analysis_*.json

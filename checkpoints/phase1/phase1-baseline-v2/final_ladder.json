@@ -1,0 +1,65 @@
+{
+  "candidate": "checkpoint:checkpoints/phase1/phase1-baseline-v2/model.zip",
+  "results": [
+    {
+      "opponent": "random",
+      "mode": "1v1",
+      "n_games": 500,
+      "wins": 400,
+      "winrate": 0.8,
+      "winrate_ci95_lo": 0.7627108946948261,
+      "winrate_ci95_hi": 0.8327145010282427,
+      "mean_vp": 9.184,
+      "mean_turns": 279.536,
+      "seconds": 118.03331783297472
+    },
+    {
+      "opponent": "weighted",
+      "mode": "1v1",
+      "n_games": 500,
+      "wins": 355,
+      "winrate": 0.71,
+      "winrate_ci95_lo": 0.6687451968835135,
+      "winrate_ci95_hi": 0.7480525801226344,
+      "mean_vp": 8.906,
+      "mean_turns": 266.148,
+      "seconds": 111.82744429202285
+    },
+    {
+      "opponent": "value",
+      "mode": "1v1",
+      "n_games": 500,
+      "wins": 46,
+      "winrate": 0.092,
+      "winrate_ci95_lo": 0.06968272368045207,
+      "winrate_ci95_hi": 0.12053873813617456,
+      "mean_vp": 4.974,
+      "mean_turns": 84.886,
+      "seconds": 94.4964316659607
+    },
+    {
+      "opponent": "alphabeta1",
+      "mode": "1v1",
+      "n_games": 500,
+      "wins": 63,
+      "winrate": 0.126,
+      "winrate_ci95_lo": 0.09973528894537706,
+      "winrate_ci95_hi": 0.15796771771986404,
+      "mean_vp": 5.32,
+      "mean_turns": 87.538,
+      "seconds": 96.91566979105119
+    },
+    {
+      "opponent": "alphabeta2",
+      "mode": "1v1",
+      "n_games": 500,
+      "wins": 37,
+      "winrate": 0.074,
+      "winrate_ci95_lo": 0.054161184751011976,
+      "winrate_ci95_hi": 0.10033475332223055,
+      "mean_vp": 4.79,
+      "mean_turns": 84.984,
+      "seconds": 472.00963179103564
+    }
+  ]
+}

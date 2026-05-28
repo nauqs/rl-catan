@@ -1,0 +1,91 @@
+{
+  "n_games": 200,
+  "winrate": 0.745,
+  "mean_vp": 8.86,
+  "mean_turns": 270.79,
+  "mean_settlements_at_end": 2.375,
+  "mean_cities_at_end": 0.95,
+  "mean_roads_at_end": 9.82,
+  "roads_per_settlement_total": 2.9533834586466163,
+  "mean_city_upgrade_actions": 0.95,
+  "mean_settlement_build_actions": 3.325,
+  "mean_road_build_actions": 9.82,
+  "mean_dev_cards_bought": 8.42,
+  "mean_knights_played": 4.46,
+  "mean_robber_steals_from_opponent": 23.85,
+  "initial_placement": {
+    "mean_pip_sum": 9.6725,
+    "mean_n_resources": 2.4125,
+    "frac_3plus_resources": 0.4675,
+    "frac_on_port": 0.0
+  },
+  "initial_resource_frequency": {
+    "BRICK": 0.42,
+    "WOOD": 0.53,
+    "ORE": 0.44,
+    "SHEEP": 0.5375,
+    "WHEAT": 0.485
+  },
+  "final_buildings_avg": {
+    "mean_pip_sum": 9.133834586466165,
+    "mean_n_resources": 2.386466165413534,
+    "frac_3plus_resources": 0.4616541353383459,
+    "frac_on_port": 0.02706766917293233
+  },
+  "port_usage_per_game": 0.09,
+  "vp_source_avg": {
+    "buildings": 4.275,
+    "longest_road": 1.5,
+    "largest_army": 1.22,
+    "vp_dev_cards": 1.865
+  },
+  "vp_source_share": {
+    "buildings": 0.4825056433408579,
+    "longest_road": 0.16930022573363432,
+    "largest_army": 0.13769751693002258,
+    "vp_dev_cards": 0.21049661399548533
+  },
+  "dev_draws_per_game": {
+    "KNIGHT": 4.515,
+    "YEAR_OF_PLENTY": 0.72,
+    "ROAD_BUILDING": 0.675,
+    "MONOPOLY": 0.645,
+    "VICTORY_POINT": 1.865
+  },
+  "reward_attribution_avg": {
+    "vp_delta": 44.3,
+    "dev_play": 32.075,
+    "robber": 26.43,
+    "discard": -44.779500000000006,
+    "city_bonus": 2.375,
+    "terminal_win": 372.5
+  },
+  "reward_attribution_share_abs": {
+    "vp_delta": 0.08479126133221808,
+    "dev_play": 0.06139231844765001,
+    "robber": 0.05058765320565517,
+    "discard": 0.08570903582000136,
+    "city_bonus": 0.004545806899864965,
+    "terminal_win": 0.7129739242946104
+  },
+  "cities_per_game_distribution": {
+    "0": 0.485,
+    "1": 0.17,
+    "2": 0.26,
+    "3": 0.08,
+    "4": 0.005
+  },
+  "win_vs_loss": {
+    "n_wins": 149,
+    "n_losses": 51,
+    "wins_mean_turns": 186.68456375838926,
+    "losses_mean_turns": 516.5098039215686,
+    "wins_mean_cities": 1.1342281879194631,
+    "losses_mean_cities": 0.4117647058823529,
+    "wins_mean_vp": 10.100671140939598,
+    "losses_mean_vp": 5.235294117647059
+  },
+  "opponent": "weighted",
+  "checkpoint": "checkpoints/phase1/phase1-baseline-v2/model.zip",
+  "elapsed_seconds": 61.98090916709043
+}
