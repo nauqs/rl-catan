@@ -36,16 +36,14 @@ train:
     schedule_end_step: 25_000_000
     start_mix:
       random: 0.15
-      weighted: 0.45
-      vp: 0.25
-      value: 0.10
-      alphabeta1: 0.05
+      weighted: 0.55
+      value: 0.20
+      alphabeta1: 0.10
       # No 'self' early — snapshot doesn't exist yet, would fall back to weighted anyway.
     end_mix:
       weighted: 0.05
-      vp: 0.05
       value: 0.15
-      alphabeta1: 0.15
+      alphabeta1: 0.20
       self: 0.60                   # heavy self-play at end (Charlesworth-style)
     snapshot_every_steps: 1_000_000
     self_fallback: weighted
@@ -82,12 +80,11 @@ train:
 
 eval:
   # In-training cheap ladder (also gets vp now).
-  callback_opponents: [random, weighted, vp, value]
+  callback_opponents: [random, weighted, value]
   callback_games: 20
   callback_every: 50_000
-  # End-of-training full ladder; vp slotted between weighted and value.
   run_final_ladder: true
-  final_opponents: [random, weighted, vp, value, alphabeta1, alphabeta2]
+  final_opponents: [random, weighted, value, alphabeta1, alphabeta2]
   final_games: 500
   final_modes: ["1v1"]
 

@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 
 from catanatron import Color, RandomPlayer
-from catanatron.players.search import VictoryPointPlayer
 from catanatron.players.value import ValueFunctionPlayer
 from catanatron.players.weighted_random import WeightedRandomPlayer
 
@@ -83,12 +82,6 @@ def test_build_sampler_dispatches_correctly(tmp_path: Path) -> None:
 def test_mixed_with_self_requires_self_key() -> None:
     with pytest.raises(ValueError):
         MixedWithSelf({"weighted": 1.0}, snapshot_path="/tmp/x")
-
-
-def test_vp_is_registered() -> None:
-    s = SingleOpponent("vp")
-    p = s.sample(np.random.default_rng(0))(Color.RED)
-    assert isinstance(p, VictoryPointPlayer)
 
 
 # ---------- ScheduledOpponent ----------

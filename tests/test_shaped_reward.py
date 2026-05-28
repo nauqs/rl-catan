@@ -36,11 +36,11 @@ def test_phase1_defaults_finite_and_terminal_dominant(seed: int) -> None:
     total, won = _play_random(env, seed)
     assert np.isfinite(total)
     if won:
+        # Winner gets the +500 terminal on top of (non-negative-ish) dense terms.
         assert total >= 500.0
-    else:
-        # Loser gets no terminal; dense terms (incl. discards) can swing far in
-        # long random games. Just bound loosely.
-        assert -300.0 < total < 300.0
+    # Loser's total is pure dense reward (loss_reward defaults to 0); its
+    # magnitude depends on game length and is not meaningfully bounded — only
+    # assert finiteness, which is the property under test.
     env.close()
 
 

@@ -9,7 +9,6 @@ import numpy as np
 
 from catanatron import Color, Player, RandomPlayer
 from catanatron.players.minimax import AlphaBetaPlayer
-from catanatron.players.search import VictoryPointPlayer
 from catanatron.players.value import ValueFunctionPlayer
 from catanatron.players.weighted_random import WeightedRandomPlayer
 
@@ -20,7 +19,6 @@ OpponentFactory = Callable[[Color], Player]
 _BUILTIN_OPPONENTS: dict[str, OpponentFactory] = {
     "random": lambda c: RandomPlayer(c),
     "weighted": lambda c: WeightedRandomPlayer(c),
-    "vp": lambda c: VictoryPointPlayer(c),
     "value": lambda c: ValueFunctionPlayer(c),
     "alphabeta1": lambda c: AlphaBetaPlayer(c, depth=1),
     "alphabeta2": lambda c: AlphaBetaPlayer(c, depth=2),
