@@ -132,6 +132,17 @@ def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
         net_arch=dict(pi=[256, 256], vf=[256, 256]),
     )
 
+    if cfg.train.policy == "factorized":
+        from catanatron.models.player import Color
+        from catan_rl.policies.factorized import FactorizedMaskableActorCriticPolicy
+        policy_cls = FactorizedMaskableActorCriticPolicy
+        # 1v1: trainable agent is BLUE, single enemy is RED. Phase 2's
+        # mixed-opponent sampler keeps the *color* tuple stable across opponents.
+        policy_kwargs["player_colors"] = (Color.BLUE, Color.RED)
+        policy_kwargs["map_type"] = cfg.env.map_type
+    else:
+        policy_cls = "MultiInputPolicy"
+
     if resume and (run_dir / "model.zip").exists():
         model = MaskablePPO.load(
             str(run_dir / "model.zip"),
@@ -140,7 +151,7 @@ def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
         )
     else:
         model = MaskablePPO(
-            "MultiInputPolicy",
+            policy_cls,
             venv,
             gamma=cfg.train.ppo.gamma,
             gae_lambda=cfg.train.ppo.gae_lambda,

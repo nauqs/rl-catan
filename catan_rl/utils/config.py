@@ -93,6 +93,7 @@ class TrainConfig(BaseModel):
     n_envs: int = 8
     device: Literal["cpu", "mps", "cuda", "auto"] = "cpu"
     arch: Literal["boardcnn", "boardcnn_attn", "mlp"] = "boardcnn"
+    policy: Literal["flat", "factorized"] = "flat"
 
     # Phase-1 simple-opponent name; if `opponent_cfg` is also set, that wins.
     opponent: Literal["random", "weighted"] = "weighted"

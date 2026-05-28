@@ -1,0 +1,74 @@
+# Phase 2b — identical to phase2a.yaml except `train.policy = factorized`.
+#
+# Single-flag flip vs Phase 2a:
+#   train.policy: flat -> factorized
+#
+# Everything else (Charlesworth reward shaping, mixed-opponent curriculum
+# with frozen self-snapshot, BoardCNN, annealing, 30M budget, MPS, MiniLadder)
+# stays identical so the experiment is a pure architectural ablation.
+seed: 0
+run_name: phase2b-factorized
+
+env:
+  map_type: BASE
+  representation: mixed
+
+train:
+  total_timesteps: 30_000_000
+  n_envs: 8
+  device: mps
+  arch: boardcnn
+  policy: factorized                # <-- the one thing that changes vs phase2a
+
+  opponent_cfg:
+    sampler: mixed_with_self
+    mix:
+      weighted: 0.4
+      value: 0.3
+      alphabeta1: 0.15
+      self: 0.15
+    snapshot_every_steps: 1_000_000
+    self_fallback: weighted
+
+  reward:
+    enabled: true
+    anneal_start_step: 15_000_000
+    anneal_end_step: 25_000_000
+    win_reward: 500.0
+    loss_reward: -500.0
+    vp_coef: 5.0
+    city_bonus: 10.0
+    dev_play_reward: 2.0
+    discard_penalty: -0.05
+    robber_target_opponent: 1.0
+    robber_blocks_high_pip: 0.2
+    initial_placement_pip: 0.5
+    initial_placement_diversity: 1.0
+    per_turn_penalty: -0.05
+
+  ppo:
+    gamma: 0.999
+    gae_lambda: 0.95
+    n_steps: 2048
+    batch_size: 512
+    ent_coef: 0.01
+    learning_rate: 3.0e-4
+    n_epochs: 10
+    clip_range: 0.2
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+  checkpoint_every: 100_000
+
+eval:
+  callback_opponents: [random, weighted, value]
+  callback_games: 20
+  callback_every: 50_000
+  run_final_ladder: true
+  final_opponents: [random, weighted, value, alphabeta1, alphabeta2]
+  final_games: 500
+  final_modes: ["1v1"]
+
+wandb:
+  project: catan-rl
+  mode: online
+  entity: null

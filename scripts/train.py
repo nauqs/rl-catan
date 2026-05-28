@@ -28,6 +28,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--n-envs", type=int, default=None)
     p.add_argument("--run-name", default=None)
     p.add_argument("--wandb", choices=["online", "offline", "disabled"], default=None)
+    p.add_argument("--arch", choices=["boardcnn", "boardcnn_attn", "mlp"], default=None)
+    p.add_argument("--policy", choices=["flat", "factorized"], default=None,
+                   help="flat: default Linear head; factorized: type+parameter heads.")
     p.add_argument("--skip-final-ladder", action="store_true",
                    help="Skip the post-training 500-game ladder (saves ~10 min on AlphaBeta n=2).")
     return p.parse_args(argv)
@@ -46,6 +49,10 @@ def main(argv: list[str] | None = None) -> int:
         cfg.run_name = args.run_name
     if args.wandb is not None:
         cfg.wandb.mode = args.wandb
+    if args.arch is not None:
+        cfg.train.arch = args.arch
+    if args.policy is not None:
+        cfg.train.policy = args.policy
     if args.skip_final_ladder:
         cfg.eval.run_final_ladder = False
     final = train(cfg, resume=args.resume)
