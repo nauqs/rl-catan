@@ -60,12 +60,12 @@ train:
     clip_range: 0.2
     vf_coef: 0.5
     max_grad_norm: 0.5
-  checkpoint_every: 100_000
+  checkpoint_every: 1_000_000          # was 100k; 10x less frequent (~50 files vs 500, saves ~4 GB disk)
 
 eval:
   callback_opponents: [random, weighted, value]
   callback_games: 20
-  callback_every: 50_000
+  callback_every: 200_000              # was 50k; 4x less frequent saves ~3h over 50M steps
   run_final_ladder: true
   final_opponents: [random, weighted, value, alphabeta1, alphabeta2]
   final_games: 500
