@@ -111,6 +111,25 @@ class MiniLadderCallback(BaseCallback):
             print(f"[MiniLadder] step={self.num_timesteps} best_random_wr={self._best_random_wr:.2f}")
 
 
+class OpponentScheduleCallback(BaseCallback):
+    """Pushes `num_timesteps` to every env's opponent sampler so a
+    `ScheduledOpponent` can compute the current interpolated mix. No-op for
+    non-scheduled samplers (their `set_step` is a no-op).
+
+    Fires on every rollout start (cheap; happens N times per training run
+    where N = total_timesteps / (n_envs * n_steps)).
+    """
+
+    def __init__(self, verbose: int = 0):
+        super().__init__(verbose)
+
+    def _on_rollout_start(self) -> None:
+        self.training_env.env_method("set_opponent_step", self.num_timesteps)
+
+    def _on_step(self) -> bool:
+        return True
+
+
 class SelfSnapshotCallback(BaseCallback):
     """Every `snapshot_every` env steps, save the current policy to `snapshot_path`
     so that `MixedWithSelf` opponent sampler can use it as the self-opponent.

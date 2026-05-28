@@ -42,6 +42,12 @@ class RotatingOpponentWrapper(gym.Wrapper):
         u.players = [u.p0, opp]
         return self.env.reset(**kwargs)
 
+    # ---- passthroughs for callbacks (AnnealingCallback, OpponentScheduleCallback) ----
+    def set_opponent_step(self, step: int) -> None:
+        """Forward the current env-step count to the sampler (scheduled samplers
+        use it to interpolate between start_mix and end_mix)."""
+        self.sampler.set_step(step)
+
 
 def make_env(
     seed: int,

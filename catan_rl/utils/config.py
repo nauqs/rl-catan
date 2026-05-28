@@ -80,10 +80,15 @@ class RewardConfig(BaseModel):
 
 class OpponentConfig(BaseModel):
     """How opponents are chosen during training."""
-    sampler: Literal["single", "mixed", "mixed_with_self"] = "single"
-    # For sampler="single": just use first key in mix; for the others: sample with weights.
+    sampler: Literal["single", "mixed", "mixed_with_self", "scheduled"] = "single"
+    # For sampler="single": just use first key in mix; for "mixed"/"mixed_with_self": weighted.
     mix: dict[str, float] = Field(default_factory=lambda: {"weighted": 1.0})
-    # MixedWithSelf-specific:
+    # Scheduled-specific: interpolate weights between start_mix and end_mix.
+    start_mix: dict[str, float] = Field(default_factory=dict)
+    end_mix: dict[str, float] = Field(default_factory=dict)
+    schedule_start_step: int = 0
+    schedule_end_step: int = 1
+    # Self-snapshot params (used by mixed_with_self and scheduled when 'self' is in mix):
     snapshot_every_steps: int = 1_000_000
     self_fallback: str = "weighted"  # used until first snapshot exists
 

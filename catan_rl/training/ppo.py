@@ -17,6 +17,7 @@ from catan_rl.features import EXTRACTORS
 from catan_rl.training.callbacks import (
     AnnealingCallback,
     MiniLadderCallback,
+    OpponentScheduleCallback,
     SelfSnapshotCallback,
 )
 from catan_rl.training.env_factory import make_env
@@ -190,14 +191,25 @@ def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
             representation=cfg.env.representation,
         ),
     ]
-    # If MixedWithSelf is configured, periodically snapshot the policy so
-    # the 'self' slot of the sampler can load it.
+    # If MixedWithSelf or Scheduled (with 'self' in the mix) is configured,
+    # periodically snapshot the policy so the 'self' slot can load it.
+    if cfg.train.opponent_cfg is not None and cfg.train.opponent_cfg.sampler in (
+        "mixed_with_self", "scheduled",
+    ):
+        wants_self = (
+            "self" in cfg.train.opponent_cfg.mix
+            or "self" in cfg.train.opponent_cfg.start_mix
+            or "self" in cfg.train.opponent_cfg.end_mix
+        )
+        if wants_self:
+            callbacks.append(SelfSnapshotCallback(
+                snapshot_path=run_dir / "self_snapshot.zip",
+                snapshot_every=cfg.train.opponent_cfg.snapshot_every_steps,
+            ))
+    # ScheduledOpponent needs to know the current step to interpolate.
     if (cfg.train.opponent_cfg is not None
-            and cfg.train.opponent_cfg.sampler == "mixed_with_self"):
-        callbacks.append(SelfSnapshotCallback(
-            snapshot_path=run_dir / "self_snapshot.zip",
-            snapshot_every=cfg.train.opponent_cfg.snapshot_every_steps,
-        ))
+            and cfg.train.opponent_cfg.sampler == "scheduled"):
+        callbacks.append(OpponentScheduleCallback())
     if wandb_callback is not None:
         callbacks.append(wandb_callback)
 

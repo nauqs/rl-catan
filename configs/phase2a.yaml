@@ -1,12 +1,14 @@
-# Phase 2a — modular improvements over phase1-baseline-v2.
+# Phase 2a — modular improvements over phase1-baseline-v2 with curriculum schedule.
 #
 # Three modules ON by default:
 #   1. Refined reward shaping (per-event retuned + new terms + annealing)
-#   2. Mixed-opponent curriculum + frozen self-snapshot
+#   2. *Scheduled* opponent curriculum that ramps from weak fixed bots
+#      at start -> heavy self-play + harder bots by end
 #   3. Architecture: still BoardCNN (Phase 1 chose well at this size)
 #
 # Targets (vs Phase 1):
 #   winrate vs Value:  9% -> >=20%
+#   winrate vs VP (new):  unknown -> measure
 #   winrate vs AB2:    7% -> >=15%
 #   cities/game vs Value:  0.5 -> >=1.0
 seed: 0
@@ -20,38 +22,50 @@ train:
   total_timesteps: 30_000_000
   n_envs: 8
   device: mps
-  arch: boardcnn                   # one of: boardcnn, boardcnn_attn, mlp
+  arch: boardcnn
+  policy: flat                     # Phase 2a stays flat; Phase 2b flips to factorized
 
-  # Module 2 — opponent curriculum
+  # Module 2 — scheduled opponent curriculum.
+  # Start with mostly weak bots (random/weighted/vp); ramp self to majority by end.
   opponent_cfg:
-    sampler: mixed_with_self
-    mix:
-      weighted: 0.4
-      value: 0.3
+    sampler: scheduled
+    # First 5M env steps: pure start_mix (mostly weak — agent needs reachable wins
+    # to keep terminal +500 firing while it learns basics).
+    schedule_start_step: 5_000_000
+    # Last 5M (25M -> 30M): pure end_mix (mostly self + value/ab1 — strong league).
+    schedule_end_step: 25_000_000
+    start_mix:
+      random: 0.15
+      weighted: 0.45
+      vp: 0.25
+      value: 0.10
+      alphabeta1: 0.05
+      # No 'self' early — snapshot doesn't exist yet, would fall back to weighted anyway.
+    end_mix:
+      weighted: 0.05
+      vp: 0.05
+      value: 0.15
       alphabeta1: 0.15
-      self: 0.15
+      self: 0.60                   # heavy self-play at end (Charlesworth-style)
     snapshot_every_steps: 1_000_000
     self_fallback: weighted
 
   # Module 1 — reward refinements + annealing
   reward:
     enabled: true
-    # Annealing: full dense until 15M, linear taper to 0 by 25M, then pure terminal.
-    anneal_start_step: 15_000_000
-    anneal_end_step: 25_000_000
-    # Terminal (never annealed)
+    anneal_start_step: 15_000_000  # full dense until 15M
+    anneal_end_step: 25_000_000    # linear taper to 0 by 25M; last 5M pure terminal
     win_reward: 500.0
-    loss_reward: -500.0            # was 0 in Phase 1
-    # Dense (annealed)
+    loss_reward: -500.0
     vp_coef: 5.0
-    city_bonus: 10.0               # was 2.5 — biggest reward refinement (data-driven)
-    dev_play_reward: 2.0           # was 5.0 — reduce dev-card-spam incentive
-    discard_penalty: -0.05         # was -0.3 — cut by 6x (data-driven)
-    robber_target_opponent: 1.0    # only when robber actually targets an opponent
-    robber_blocks_high_pip: 0.2    # × pip_sum × (1 if opponent adjacent else 0)
-    initial_placement_pip: 0.5     # × pip_sum at each initial BUILD_SETTLEMENT
-    initial_placement_diversity: 1.0   # × n_unique_resources at initial BUILD_SETTLEMENT
-    per_turn_penalty: -0.05        # small push toward closing out
+    city_bonus: 10.0
+    dev_play_reward: 2.0
+    discard_penalty: -0.05
+    robber_target_opponent: 1.0
+    robber_blocks_high_pip: 0.2
+    initial_placement_pip: 0.5
+    initial_placement_diversity: 1.0
+    per_turn_penalty: -0.05
 
   ppo:
     gamma: 0.999
@@ -67,11 +81,13 @@ train:
   checkpoint_every: 100_000
 
 eval:
-  callback_opponents: [random, weighted, value]
+  # In-training cheap ladder (also gets vp now).
+  callback_opponents: [random, weighted, vp, value]
   callback_games: 20
   callback_every: 50_000
+  # End-of-training full ladder; vp slotted between weighted and value.
   run_final_ladder: true
-  final_opponents: [random, weighted, value, alphabeta1, alphabeta2]
+  final_opponents: [random, weighted, vp, value, alphabeta1, alphabeta2]
   final_games: 500
   final_modes: ["1v1"]
 

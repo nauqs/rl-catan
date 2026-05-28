@@ -1,4 +1,4 @@
-"""Smoke test the ladder harness over all 5 opponents (1v1, tiny game counts)."""
+"""Smoke test the ladder harness over all built-in opponents (1v1, tiny game counts)."""
 from __future__ import annotations
 
 from catanatron import RandomPlayer

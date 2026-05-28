@@ -1,11 +1,7 @@
-# Phase 2b — identical to phase2a.yaml except `train.policy = factorized`.
-#
-# Single-flag flip vs Phase 2a:
-#   train.policy: flat -> factorized
-#
-# Everything else (Charlesworth reward shaping, mixed-opponent curriculum
-# with frozen self-snapshot, BoardCNN, annealing, 30M budget, MPS, MiniLadder)
-# stays identical so the experiment is a pure architectural ablation.
+# Phase 2b — same as phase2a.yaml except `train.policy: factorized`.
+# This is a pure architectural ablation: identical training schedule + reward
+# shaping, but the policy uses Charlesworth-style type+parameter heads instead
+# of one flat Linear(features -> 332) head.
 seed: 0
 run_name: phase2b-factorized
 
@@ -18,15 +14,24 @@ train:
   n_envs: 8
   device: mps
   arch: boardcnn
-  policy: factorized                # <-- the one thing that changes vs phase2a
+  policy: factorized               # <-- the one thing that changes vs phase2a
 
   opponent_cfg:
-    sampler: mixed_with_self
-    mix:
-      weighted: 0.4
-      value: 0.3
+    sampler: scheduled
+    schedule_start_step: 5_000_000
+    schedule_end_step: 25_000_000
+    start_mix:
+      random: 0.15
+      weighted: 0.45
+      vp: 0.25
+      value: 0.10
+      alphabeta1: 0.05
+    end_mix:
+      weighted: 0.05
+      vp: 0.05
+      value: 0.15
       alphabeta1: 0.15
-      self: 0.15
+      self: 0.60
     snapshot_every_steps: 1_000_000
     self_fallback: weighted
 
@@ -60,11 +65,11 @@ train:
   checkpoint_every: 100_000
 
 eval:
-  callback_opponents: [random, weighted, value]
+  callback_opponents: [random, weighted, vp, value]
   callback_games: 20
   callback_every: 50_000
   run_final_ladder: true
-  final_opponents: [random, weighted, value, alphabeta1, alphabeta2]
+  final_opponents: [random, weighted, vp, value, alphabeta1, alphabeta2]
   final_games: 500
   final_modes: ["1v1"]
 
