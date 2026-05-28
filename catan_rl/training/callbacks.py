@@ -74,7 +74,10 @@ class MiniLadderCallback(BaseCallback):
 
     def _run_eval(self) -> None:
         from catan_rl.eval.ladder import run_ladder
+        from catan_rl.eval.metrics import aggregate, collect
+        from catan_rl.eval.opponents import build_opponent
         from catan_rl.players.rl_player import RLPlayer
+        from catanatron import Color, Game
 
         with tempfile.TemporaryDirectory() as tmpdir:
             ckpt = Path(tmpdir) / "current.zip"
@@ -106,6 +109,19 @@ class MiniLadderCallback(BaseCallback):
                 self.save_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy(ckpt, self.save_dir / "best.zip")
                 self.logger.record("eval/best_random_wr", random_wr)
+
+            # --- cheap behavioral metrics (10 games vs weighted, ~0.5s) ---
+            beh_rows = []
+            for s in range(10):
+                game = Game(
+                    [factory(Color.BLUE), build_opponent("weighted", Color.RED)],
+                    seed=self.num_timesteps + s,
+                )
+                game.play()
+                beh_rows.append(collect(game, Color.BLUE))
+            agg = aggregate(beh_rows)
+            for k, v in agg.items():
+                self.logger.record(f"behavior/{k}", v)
 
         if self.verbose:
             print(f"[MiniLadder] step={self.num_timesteps} best_random_wr={self._best_random_wr:.2f}")
