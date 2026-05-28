@@ -10,7 +10,7 @@ env:
   representation: mixed
 
 train:
-  total_timesteps: 30_000_000
+  total_timesteps: 50_000_000
   n_envs: 8
   device: mps
   arch: boardcnn
