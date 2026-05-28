@@ -1,4 +1,4 @@
-"""Config schema. Phase 0 used `EnvConfig`, `EvalConfig`, `WandbConfig`; Phase 1 adds `TrainConfig`."""
+"""Config schema for Phase 0 / Phase 1 / Phase 2a."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,19 +15,16 @@ class EnvConfig(BaseModel):
 
 
 class EvalConfig(BaseModel):
-    # Phase-0 default ladder fields (used by `catan_rl.eval`):
     games: int = 20
     modes: list[Literal["1v1", "4p"]] = Field(default_factory=lambda: ["1v1", "4p"])
     opponents: list[str] = Field(
         default_factory=lambda: ["random", "weighted", "value", "alphabeta1", "alphabeta2"]
     )
 
-    # Phase-1 in-training callback (cheap ladder run during PPO training):
     callback_opponents: list[str] = Field(default_factory=lambda: ["random", "weighted", "value"])
     callback_games: int = 20
     callback_every: int = 50_000
 
-    # Phase-1 end-of-training full ladder:
     run_final_ladder: bool = True
     final_opponents: list[str] = Field(
         default_factory=lambda: ["random", "weighted", "value", "alphabeta1", "alphabeta2"]
@@ -56,16 +53,51 @@ class PPOConfig(BaseModel):
 
 
 class RewardConfig(BaseModel):
+    """Per-term coefficients for ShapedRewardWrapper.
+
+    Setting any coefficient to 0 disables that term cleanly. Phase-1 defaults
+    match Charlesworth; Phase-2a overrides them via configs/phase2a.yaml.
+    """
     enabled: bool = True
-    anneal_start_step: int = -1
+    anneal_start_step: int = -1     # -1 disables annealing; else linear taper
     anneal_end_step: int = -1
+
+    # Terminal (never annealed)
+    win_reward: float = 500.0
+    loss_reward: float = 0.0
+
+    # Dense (annealed by dense_factor)
+    vp_coef: float = 5.0
+    city_bonus: float = 2.5
+    dev_play_reward: float = 5.0
+    robber_target_opponent: float = 1.0      # only when MOVE_ROBBER targets opponent
+    robber_blocks_high_pip: float = 0.0      # bonus × pip_sum × (1 if opponent adjacent else 0)
+    discard_penalty: float = -0.3
+    initial_placement_pip: float = 0.0       # × pip_sum at each initial BUILD_SETTLEMENT
+    initial_placement_diversity: float = 0.0 # × n_unique_resources at initial BUILD_SETTLEMENT
+    per_turn_penalty: float = 0.0            # applied every env step
+
+
+class OpponentConfig(BaseModel):
+    """How opponents are chosen during training."""
+    sampler: Literal["single", "mixed", "mixed_with_self"] = "single"
+    # For sampler="single": just use first key in mix; for the others: sample with weights.
+    mix: dict[str, float] = Field(default_factory=lambda: {"weighted": 1.0})
+    # MixedWithSelf-specific:
+    snapshot_every_steps: int = 1_000_000
+    self_fallback: str = "weighted"  # used until first snapshot exists
 
 
 class TrainConfig(BaseModel):
     total_timesteps: int = 10_000_000
     n_envs: int = 8
     device: Literal["cpu", "mps", "cuda", "auto"] = "cpu"
+    arch: Literal["boardcnn", "boardcnn_attn", "mlp"] = "boardcnn"
+
+    # Phase-1 simple-opponent name; if `opponent_cfg` is also set, that wins.
     opponent: Literal["random", "weighted"] = "weighted"
+    opponent_cfg: OpponentConfig | None = None
+
     reward: RewardConfig = Field(default_factory=RewardConfig)
     ppo: PPOConfig = Field(default_factory=PPOConfig)
     checkpoint_every: int = 100_000

@@ -109,3 +109,29 @@ class MiniLadderCallback(BaseCallback):
 
         if self.verbose:
             print(f"[MiniLadder] step={self.num_timesteps} best_random_wr={self._best_random_wr:.2f}")
+
+
+class SelfSnapshotCallback(BaseCallback):
+    """Every `snapshot_every` env steps, save the current policy to `snapshot_path`
+    so that `MixedWithSelf` opponent sampler can use it as the self-opponent.
+
+    The save is atomic via temp file + rename so partial files never get loaded.
+    """
+
+    def __init__(self, snapshot_path: Path, snapshot_every: int, verbose: int = 0):
+        super().__init__(verbose)
+        self.snapshot_path = Path(snapshot_path)
+        self.snapshot_every = snapshot_every
+        self._last_snapshot_step = 0
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps - self._last_snapshot_step < self.snapshot_every:
+            return True
+        self._last_snapshot_step = self.num_timesteps
+        self.snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.snapshot_path.with_suffix(self.snapshot_path.suffix + ".tmp")
+        self.model.save(str(tmp))
+        tmp.replace(self.snapshot_path)
+        if self.verbose:
+            print(f"[SelfSnapshot] step={self.num_timesteps} -> {self.snapshot_path}")
+        return True

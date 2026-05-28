@@ -1,10 +1,9 @@
-"""MaskablePPO training loop with W&B + crash-safe resume."""
+"""MaskablePPO training loop with W&B + crash-safe resume + Phase-2a modules."""
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
-from typing import Optional
 
 from sb3_contrib import MaskablePPO
 from stable_baselines3.common.callbacks import (
@@ -14,32 +13,39 @@ from stable_baselines3.common.callbacks import (
 )
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
-from catan_rl.features.board_cnn import BoardCNN
-from catan_rl.training.callbacks import AnnealingCallback, MiniLadderCallback
+from catan_rl.features import EXTRACTORS
+from catan_rl.training.callbacks import (
+    AnnealingCallback,
+    MiniLadderCallback,
+    SelfSnapshotCallback,
+)
 from catan_rl.training.env_factory import make_env
-from catan_rl.utils.config import BaseConfig
+from catan_rl.training.opponents import (
+    OpponentSampler,
+    SingleOpponent,
+    build_sampler,
+)
+from catan_rl.utils.config import BaseConfig, OpponentConfig
 
 
-def _make_vec_env(cfg: BaseConfig) -> SubprocVecEnv:
-    n = cfg.train.n_envs
-
-    def _factory(rank: int):
-        def _thunk():
-            return make_env(
-                seed=cfg.seed + rank,
-                map_type=cfg.env.map_type,
-                representation=cfg.env.representation,
-                opponent=cfg.train.opponent,
-                reward_shaping=cfg.train.reward.enabled,
-            )
-
-        return _thunk
-
-    return SubprocVecEnv([_factory(i) for i in range(n)])
-
+# --------------------------------------------------------------------------- #
+# helpers
+# --------------------------------------------------------------------------- #
 
 def _resolve_run_dir(cfg: BaseConfig) -> Path:
-    return Path("checkpoints") / "phase1" / cfg.run_name
+    phase = "phase2" if cfg.train.opponent_cfg is not None else "phase1"
+    return Path("checkpoints") / phase / cfg.run_name
+
+
+def _resolve_sampler(cfg: BaseConfig, run_dir: Path) -> OpponentSampler:
+    """Build the OpponentSampler from cfg, falling back to Phase-1 single-opponent."""
+    if cfg.train.opponent_cfg is None:
+        return SingleOpponent(cfg.train.opponent)
+    return build_sampler(
+        cfg.train.opponent_cfg,
+        snapshot_path=run_dir / "self_snapshot.zip",
+        representation=cfg.env.representation,
+    )
 
 
 def _save_text(path: Path, content: str) -> None:
@@ -47,9 +53,31 @@ def _save_text(path: Path, content: str) -> None:
     path.write_text(content)
 
 
+def _make_vec_env(cfg: BaseConfig, run_dir: Path) -> SubprocVecEnv:
+    n = cfg.train.n_envs
+
+    def _factory(rank: int):
+        # Re-resolve the sampler *inside the subprocess* (it gets pickled cleanly).
+        sampler = _resolve_sampler(cfg, run_dir)
+
+        def _thunk():
+            return make_env(
+                seed=cfg.seed + rank,
+                map_type=cfg.env.map_type,
+                representation=cfg.env.representation,
+                sampler=sampler,
+                reward_shaping=cfg.train.reward.enabled,
+                reward_config=cfg.train.reward,
+            )
+
+        return _thunk
+
+    return SubprocVecEnv([_factory(i) for i in range(n)])
+
+
 class _UpdateLatestCallback(BaseCallback):
-    """After each rollout, overwrite `model.zip` with the latest weights so resume
-    has a single canonical path to load from."""
+    """After each PPO rollout, overwrite `model.zip` so resume has a single
+    canonical path to load from."""
 
     def __init__(self, run_dir: Path):
         super().__init__()
@@ -63,16 +91,16 @@ class _UpdateLatestCallback(BaseCallback):
         _save_text(self.run_dir / "step.txt", str(self.num_timesteps))
 
 
-def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
-    """Train MaskablePPO with the given config. Returns path to final `model.zip`.
+# --------------------------------------------------------------------------- #
+# main entry point
+# --------------------------------------------------------------------------- #
 
-    If `resume=True`, loads `<run_dir>/model.zip` and reattaches the W&B run
-    stored in `<run_dir>/wandb_run_id.txt` so the plot continues unbroken.
-    """
+def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
+    """Train MaskablePPO with the given config. Returns path to final `model.zip`."""
     run_dir = _resolve_run_dir(cfg)
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    venv = _make_vec_env(cfg)
+    venv = _make_vec_env(cfg, run_dir)
 
     wandb_run = None
     wandb_callback = None
@@ -81,30 +109,28 @@ def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
         from wandb.integration.sb3 import WandbCallback
 
         run_id_path = run_dir / "wandb_run_id.txt"
+        common_init = dict(
+            project=cfg.wandb.project,
+            entity=cfg.wandb.entity or os.environ.get("WANDB_ENTITY"),
+            mode=cfg.wandb.mode,
+            config=cfg.model_dump(),
+            sync_tensorboard=True,
+        )
         if resume and run_id_path.exists():
             run_id = run_id_path.read_text().strip()
-            wandb_run = wandb.init(
-                project=cfg.wandb.project,
-                entity=cfg.wandb.entity or os.environ.get("WANDB_ENTITY"),
-                id=run_id,
-                resume="must",
-                mode=cfg.wandb.mode,
-                config=cfg.model_dump(),
-                sync_tensorboard=True,
-            )
+            wandb_run = wandb.init(id=run_id, resume="must", **common_init)
         else:
             run_id = wandb.util.generate_id()
-            wandb_run = wandb.init(
-                project=cfg.wandb.project,
-                entity=cfg.wandb.entity or os.environ.get("WANDB_ENTITY"),
-                id=run_id,
-                name=cfg.run_name,
-                mode=cfg.wandb.mode,
-                config=cfg.model_dump(),
-                sync_tensorboard=True,
-            )
+            wandb_run = wandb.init(id=run_id, name=cfg.run_name, **common_init)
             run_id_path.write_text(run_id)
         wandb_callback = WandbCallback(verbose=0)
+
+    extractor_cls = EXTRACTORS[cfg.train.arch]
+    policy_kwargs = dict(
+        features_extractor_class=extractor_cls,
+        features_extractor_kwargs=dict(features_dim=512),
+        net_arch=dict(pi=[256, 256], vf=[256, 256]),
+    )
 
     if resume and (run_dir / "model.zip").exists():
         model = MaskablePPO.load(
@@ -113,11 +139,6 @@ def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
             device=cfg.train.device,
         )
     else:
-        policy_kwargs = dict(
-            features_extractor_class=BoardCNN,
-            features_extractor_kwargs=dict(features_dim=512),
-            net_arch=dict(pi=[256, 256], vf=[256, 256]),
-        )
         model = MaskablePPO(
             "MultiInputPolicy",
             venv,
@@ -137,7 +158,6 @@ def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
             verbose=1,
         )
 
-    rollout_envsteps = cfg.train.ppo.n_steps * cfg.train.n_envs
     save_freq = max(1, cfg.train.checkpoint_every // cfg.train.n_envs)
     callbacks: list[BaseCallback] = [
         _UpdateLatestCallback(run_dir),
@@ -159,6 +179,14 @@ def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
             representation=cfg.env.representation,
         ),
     ]
+    # If MixedWithSelf is configured, periodically snapshot the policy so
+    # the 'self' slot of the sampler can load it.
+    if (cfg.train.opponent_cfg is not None
+            and cfg.train.opponent_cfg.sampler == "mixed_with_self"):
+        callbacks.append(SelfSnapshotCallback(
+            snapshot_path=run_dir / "self_snapshot.zip",
+            snapshot_every=cfg.train.opponent_cfg.snapshot_every_steps,
+        ))
     if wandb_callback is not None:
         callbacks.append(wandb_callback)
 
@@ -213,8 +241,3 @@ def _run_final_ladder(cfg: BaseConfig, model_path: Path, wandb_run) -> None:
             wandb.summary[f"final/{row['mode']}/{row['opponent']}/winrate"] = row["winrate"]
             wandb.summary[f"final/{row['mode']}/{row['opponent']}/mean_vp"] = row["mean_vp"]
         wandb.summary["final/results"] = payload["results"]
-
-
-def _build_train_config_for_tests(**overrides) -> BaseConfig:
-    """Tiny helper to construct a Phase 1 config from a dict (used in tests)."""
-    return BaseConfig.model_validate(overrides)

@@ -1,3 +1,9 @@
-from catan_rl.features.board_cnn import BoardCNN
+from catan_rl.features.board_cnn import BoardCNN, BoardCNNAttn, MLPExtractor
 
-__all__ = ["BoardCNN"]
+EXTRACTORS: dict[str, type] = {
+    "boardcnn": BoardCNN,
+    "boardcnn_attn": BoardCNNAttn,
+    "mlp": MLPExtractor,
+}
+
+__all__ = ["BoardCNN", "BoardCNNAttn", "MLPExtractor", "EXTRACTORS"]
