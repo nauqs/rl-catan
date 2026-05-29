@@ -54,6 +54,7 @@ class MiniLadderCallback(BaseCallback):
         n_games: int,
         save_dir: Path,
         representation: str = "mixed",
+        enable_maritime_trade: bool = False,
         verbose: int = 0,
     ):
         super().__init__(verbose)
@@ -62,6 +63,7 @@ class MiniLadderCallback(BaseCallback):
         self.n_games = n_games
         self.save_dir = Path(save_dir)
         self.representation = representation
+        self.enable_maritime_trade = enable_maritime_trade
         self._last_eval_step = 0
         self._best_random_wr: float = -1.0
 
@@ -83,9 +85,14 @@ class MiniLadderCallback(BaseCallback):
             ckpt = Path(tmpdir) / "current.zip"
             self.model.save(str(ckpt))
 
-            def factory(color):
+            # Ladder winrate: deterministic (stable winrate). Behavioral metrics
+            # below: stochastic, so action-tendency counts (robber/maritime/dev)
+            # reflect the policy's distribution rather than a single argmax choice.
+            def factory(color, deterministic=True):
                 return RLPlayer(
-                    color, ckpt, representation=self.representation, deterministic=True
+                    color, ckpt, representation=self.representation,
+                    deterministic=deterministic,
+                    enable_maritime_trade=self.enable_maritime_trade,
                 )
 
             result = run_ladder(
@@ -110,11 +117,12 @@ class MiniLadderCallback(BaseCallback):
                 shutil.copy(ckpt, self.save_dir / "best.zip")
                 self.logger.record("eval/best_random_wr", random_wr)
 
-            # --- cheap behavioral metrics (10 games vs weighted, ~0.5s) ---
+            # --- cheap behavioral metrics (10 stochastic games vs weighted) ---
             beh_rows = []
             for s in range(10):
                 game = Game(
-                    [factory(Color.BLUE), build_opponent("weighted", Color.RED)],
+                    [factory(Color.BLUE, deterministic=False),
+                     build_opponent("weighted", Color.RED)],
                     seed=self.num_timesteps + s,
                 )
                 game.play()

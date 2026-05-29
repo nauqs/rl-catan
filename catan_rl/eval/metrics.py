@@ -51,8 +51,9 @@ def collect(game: Game, agent_color: Color) -> dict:
     # --- action counters (agent only) ---
     n_dev_purchased = 0
     n_dev_played = 0          # non-VP dev cards played
-    n_knights_opponent = 0    # robber targeting an opponent node
-    n_knights_self_desert = 0 # robber to desert or own tile (wasted)
+    n_knight_cards_played = 0 # PLAY_KNIGHT_CARD specifically (the actual knights)
+    n_robber_targets_opp = 0  # robber placement (7-roll OR knight) that steals from an opponent
+    n_robber_no_steal = 0     # robber placement that steals from nobody (desert/own/empty)
     n_discard = 0
     n_city_built = 0
     n_maritime_trades = 0     # bank/port trades (re-enabled in Phase 3)
@@ -66,12 +67,15 @@ def collect(game: Game, agent_color: Color) -> dict:
             n_dev_purchased += 1
         elif t in _DEV_PLAY_TYPES:
             n_dev_played += 1
+            if t == ActionType.PLAY_KNIGHT_CARD:
+                n_knight_cards_played += 1
         elif t == ActionType.MOVE_ROBBER:
+            # Counts every robber placement regardless of source (7-roll or knight).
             victim = a.value[1] if (a.value and len(a.value) > 1) else None
             if victim is not None and victim != agent_color:
-                n_knights_opponent += 1
+                n_robber_targets_opp += 1
             else:
-                n_knights_self_desert += 1
+                n_robber_no_steal += 1
         elif t == ActionType.DISCARD_RESOURCE:
             n_discard += 1
         elif t == ActionType.BUILD_CITY:
@@ -99,8 +103,9 @@ def collect(game: Game, agent_color: Color) -> dict:
             and rec.action.action_type == ActionType.BUY_DEVELOPMENT_CARD
             and isinstance(rec.result, str) and rec.result == "VICTORY_POINT"
         ),
-        "n_knights_opponent": n_knights_opponent,
-        "n_knights_self_desert": n_knights_self_desert,
+        "n_knight_cards_played": n_knight_cards_played,
+        "n_robber_targets_opp": n_robber_targets_opp,
+        "n_robber_no_steal": n_robber_no_steal,
         "n_discard": n_discard,
         "n_city_built": n_city_built,
         "n_maritime_trades": n_maritime_trades,

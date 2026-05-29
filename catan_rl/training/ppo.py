@@ -207,6 +207,7 @@ def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
             n_games=cfg.eval.callback_games,
             save_dir=run_dir,
             representation=cfg.env.representation,
+            enable_maritime_trade=cfg.env.enable_maritime_trade,
         ),
     ]
     # If MixedWithSelf or Scheduled (with 'self' in the mix) is configured,
