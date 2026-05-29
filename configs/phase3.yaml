@@ -9,9 +9,11 @@
 #      every benchmark bot. (Player<->player trades are not in the gym action
 #      space at all.)
 #
-# Self-play >=50% of the run: the schedule ramps to self=0.55 by ~8M steps and
-# holds for the remainder. Reward shaping / annealing / PPO hypers copy phase2b
-# for comparability.
+# Self-play >=50% for nearly the whole run: a short heuristic bootstrap to 1M,
+# then a fast ramp (1M->2M) to self=0.5, held for the remainder. The self
+# snapshot is saved at step 0 and refreshed every 1M (single overwritten file,
+# no disk cost), so the self-opponent tracks the improving policy rather than
+# staying a near-random step-0 copy. Reward/annealing/PPO hypers copy phase2b.
 #
 # Device/budget finalized from `scripts/profile_device.py --policy spatial`:
 # MPS 266 sps vs CPU 90 sps (~3x) -> device: mps. Resource footprint kept
@@ -34,20 +36,21 @@ train:
 
   opponent_cfg:
     sampler: scheduled
-    # Brief heuristic bootstrap, then self-dominated for most of the run.
-    schedule_start_step: 2_000_000
-    schedule_end_step: 8_000_000
+    # Short heuristic bootstrap to 1M, then ramp 1M->2M to self=0.5 (held after).
+    schedule_start_step: 1_000_000
+    schedule_end_step: 2_000_000
     start_mix:
       weighted: 0.5
       value: 0.3
       alphabeta1: 0.2
-      # No 'self' early — snapshot is weak; reachable wins keep terminal +500 firing.
+      # No 'self' in the first 1M — reachable wins keep terminal +500 firing while
+      # the policy gets off the ground; the 1M snapshot then seeds self-play.
     end_mix:
-      self: 0.55                    # self >=50% from ~8M onward
+      self: 0.5                     # self = 50% from ~2M onward (rest heuristic)
       value: 0.2
       alphabeta1: 0.2
-      weighted: 0.05
-    snapshot_every_steps: 2_000_000
+      weighted: 0.1
+    snapshot_every_steps: 1_000_000  # single overwritten file -> self tracks current policy
     self_fallback: weighted
 
   reward:
