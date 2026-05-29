@@ -17,7 +17,7 @@ def _obs_space():
 
 
 def test_registry_keys() -> None:
-    assert set(EXTRACTORS) == {"boardcnn", "boardcnn_attn", "mlp"}
+    assert set(EXTRACTORS) == {"boardcnn", "boardcnn_attn", "mlp", "hex"}
     assert EXTRACTORS["boardcnn"] is BoardCNN
     assert EXTRACTORS["boardcnn_attn"] is BoardCNNAttn
     assert EXTRACTORS["mlp"] is MLPExtractor

@@ -59,6 +59,7 @@ def make_env(
     # Phase-1 compat: if `sampler` is None, fall back to the old `opponent` string.
     opponent: str = "weighted",
     reward_shaping: bool = True,
+    enable_maritime_trade: bool = False,
 ) -> gym.Env:
     """Wrapped Catanatron 1v1 env: Rotate -> CastDtype -> NoTrade -> Shaped -> Monitor."""
     if sampler is None:
@@ -75,7 +76,7 @@ def make_env(
     )
     env = RotatingOpponentWrapper(env, sampler, seed=seed)
     env = CastDtypeWrapper(env)
-    env = NoTradeWrapper(env)
+    env = NoTradeWrapper(env, strip_maritime=not enable_maritime_trade)
     env = ShapedRewardWrapper(env, enabled=reward_shaping, config=reward_config)
     env = Monitor(env)
     env.reset(seed=seed)

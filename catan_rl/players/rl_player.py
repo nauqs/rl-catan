@@ -44,12 +44,14 @@ class RLPlayer(Player):
         deterministic: bool = True,
         device: str = "cpu",
         seed: Optional[int] = None,
+        enable_maritime_trade: bool = False,
     ):
         super().__init__(color)
         self._model = MaskablePPO.load(str(model_path), device=device)
         self._map_type = map_type
         self._representation = representation
         self._deterministic = deterministic
+        self._enable_maritime_trade = enable_maritime_trade
         self._features_cache: dict[int, list[str]] = {}
         self._numeric_features_cache: dict[int, list[str]] = {}
         self._rng = random.Random(seed)
@@ -90,9 +92,10 @@ class RLPlayer(Player):
         mask = np.zeros(len(action_array), dtype=bool)
         for i in valid_idx:
             mask[i] = True
-        for i, (atype, _) in enumerate(action_array):
-            if atype in TRADE_ACTION_TYPES:
-                mask[i] = False
+        if not self._enable_maritime_trade:
+            for i, (atype, _) in enumerate(action_array):
+                if atype in TRADE_ACTION_TYPES:
+                    mask[i] = False
 
         if not mask.any():
             return self._rng.choice(list(playable_actions))

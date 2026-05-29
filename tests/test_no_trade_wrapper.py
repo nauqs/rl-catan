@@ -33,3 +33,23 @@ def test_no_trade_in_rollouts(seed: int) -> None:
                 break
         games += 1
     env.close()
+
+
+def test_strip_maritime_false_retains_indices() -> None:
+    """With strip_maritime=False the wrapper is a no-op: maritime indices stay
+    available in both action_masks() and valid_actions."""
+    base = gym.make("catanatron/Catanatron-v0")
+    trade = trade_action_indices(base)
+    assert trade, "expected maritime indices to exist in the action space"
+
+    env = NoTradeWrapper(base, strip_maritime=False)
+    assert env._trade_idx == set()
+
+    obs, info = env.reset(seed=0)
+    mask = env.action_masks()
+    # The wrapper must not have flipped any maritime index off (the underlying
+    # env decides availability); i.e. it removes nothing.
+    base_mask = env.env.unwrapped.action_masks()
+    assert mask == base_mask
+    assert set(info["valid_actions"]) == set(env.env.unwrapped.get_valid_actions())
+    env.close()

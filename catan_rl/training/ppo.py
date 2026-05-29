@@ -26,7 +26,7 @@ from catan_rl.training.opponents import (
     SingleOpponent,
     build_sampler,
 )
-from catan_rl.utils.config import BaseConfig, OpponentConfig
+from catan_rl.utils.config import BaseConfig
 
 
 # --------------------------------------------------------------------------- #
@@ -46,6 +46,7 @@ def _resolve_sampler(cfg: BaseConfig, run_dir: Path) -> OpponentSampler:
         cfg.train.opponent_cfg,
         snapshot_path=run_dir / "self_snapshot.zip",
         representation=cfg.env.representation,
+        enable_maritime_trade=cfg.env.enable_maritime_trade,
     )
 
 
@@ -69,6 +70,7 @@ def _make_vec_env(cfg: BaseConfig, run_dir: Path) -> SubprocVecEnv:
                 sampler=sampler,
                 reward_shaping=cfg.train.reward.enabled,
                 reward_config=cfg.train.reward,
+                enable_maritime_trade=cfg.env.enable_maritime_trade,
             )
 
         return _thunk
@@ -126,23 +128,39 @@ def train(cfg: BaseConfig, *, resume: bool = False) -> Path:
             run_id_path.write_text(run_id)
         wandb_callback = WandbCallback(verbose=0)
 
-    extractor_cls = EXTRACTORS[cfg.train.arch]
-    policy_kwargs = dict(
-        features_extractor_class=extractor_cls,
-        features_extractor_kwargs=dict(features_dim=512),
-        net_arch=dict(pi=[256, 256], vf=[256, 256]),
-    )
-
-    if cfg.train.policy == "factorized":
+    if cfg.train.policy == "spatial":
+        from catanatron.models.player import Color
+        from catan_rl.features import HexEncoder
+        from catan_rl.policies.spatial import SpatialMaskableActorCriticPolicy
+        policy_cls = SpatialMaskableActorCriticPolicy
+        # HexEncoder owns the conv trunk + global summary; the spatial head owns
+        # the policy/value MLPs, so we don't pass net_arch / features_dim here.
+        policy_kwargs = dict(
+            features_extractor_class=HexEncoder,
+            player_colors=(Color.BLUE, Color.RED),
+            map_type=cfg.env.map_type,
+            enable_maritime=cfg.env.enable_maritime_trade,
+        )
+    elif cfg.train.policy == "factorized":
         from catanatron.models.player import Color
         from catan_rl.policies.factorized import FactorizedMaskableActorCriticPolicy
         policy_cls = FactorizedMaskableActorCriticPolicy
         # 1v1: trainable agent is BLUE, single enemy is RED. Phase 2's
         # mixed-opponent sampler keeps the *color* tuple stable across opponents.
-        policy_kwargs["player_colors"] = (Color.BLUE, Color.RED)
-        policy_kwargs["map_type"] = cfg.env.map_type
+        policy_kwargs = dict(
+            features_extractor_class=EXTRACTORS[cfg.train.arch],
+            features_extractor_kwargs=dict(features_dim=512),
+            net_arch=dict(pi=[256, 256], vf=[256, 256]),
+            player_colors=(Color.BLUE, Color.RED),
+            map_type=cfg.env.map_type,
+        )
     else:
         policy_cls = "MultiInputPolicy"
+        policy_kwargs = dict(
+            features_extractor_class=EXTRACTORS[cfg.train.arch],
+            features_extractor_kwargs=dict(features_dim=512),
+            net_arch=dict(pi=[256, 256], vf=[256, 256]),
+        )
 
     if resume and (run_dir / "model.zip").exists():
         model = MaskablePPO.load(
@@ -243,7 +261,8 @@ def _run_final_ladder(cfg: BaseConfig, model_path: Path, wandb_run) -> None:
 
     def factory(color):
         return RLPlayer(
-            color, model_path, representation=cfg.env.representation, deterministic=True
+            color, model_path, representation=cfg.env.representation, deterministic=True,
+            enable_maritime_trade=cfg.env.enable_maritime_trade,
         )
 
     result = run_ladder(

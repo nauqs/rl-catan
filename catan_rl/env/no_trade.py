@@ -1,9 +1,10 @@
-"""Wrapper that removes trade actions from the Catanatron gym env's action mask.
+"""Wrapper that (optionally) removes maritime trade from the action mask.
 
-Trading is intentionally out of scope for this project (see README). The
-underlying Catanatron action array only exposes `MARITIME_TRADE` (player-to-
-player trades aren't part of the gym action space at all), so this wrapper
-strips those indices wherever the env surfaces them.
+The Catanatron gym action space only exposes `MARITIME_TRADE` (bank/port
+4:1/3:1/2:1 exchanges); player-to-player trades aren't part of it at all. This
+wrapper masks those maritime indices when `strip_maritime=True`. Phase 3 sets
+`strip_maritime=False` so the agent can trade with the bank like every benchmark
+bot; earlier phases keep it stripped (the historical default).
 """
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ def trade_action_indices(env: gym.Env) -> set[int]:
 
 
 class NoTradeWrapper(gym.Wrapper):
-    """Strips trade indices from `info["valid_actions"]` and `action_masks()`.
+    """Strips maritime trade indices from `info["valid_actions"]` and `action_masks()`.
 
     Notes
     -----
@@ -34,11 +35,13 @@ class NoTradeWrapper(gym.Wrapper):
     - `MaskablePPO` reads masks via either `info["action_mask"]` (if used with
       `ActionMasker`) or by calling `env.action_masks()` directly on
       `SubprocVecEnv`. We override both.
+    - With `strip_maritime=False` the wrapper is a no-op (maritime stays
+      available); used in Phase 3 where the agent trades with the bank.
     """
 
-    def __init__(self, env: gym.Env):
+    def __init__(self, env: gym.Env, *, strip_maritime: bool = True):
         super().__init__(env)
-        self._trade_idx = trade_action_indices(env)
+        self._trade_idx = trade_action_indices(env) if strip_maritime else set()
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)

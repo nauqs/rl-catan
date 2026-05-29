@@ -17,7 +17,8 @@ Get as close as possible to (and ideally beat) Catanatron's `AlphaBetaPlayer` wi
 - Evaluation strictly through the Catanatron ladder (Random → WeightedRandom → ValueFunction → AlphaBeta n=1 → AlphaBeta n=2)
 
 **Out of scope (deliberately)**
-- **Trading.** Disabled project-wide. Trade-related actions are removed from the action mask so the agent never proposes, accepts, or rejects trades. Charlesworth's settlers-rl project spent ~1 month training a 4-player agent with trading and never converged on sensible trade behavior; we're not repeating that.
+- **Player↔player trading only.** Proposing / accepting / rejecting trades with other *players* is out of scope — and, conveniently, those actions are not part of Catanatron's gym action space at all, so there is nothing to mask. Charlesworth's settlers-rl project spent ~1 month on a 4-player agent with player-trade heads (`ProposeTrade` / `RespondToOffer`) and never converged on sensible behavior; we're not repeating that.
+  - **Correction (Phase 3):** *maritime* (bank/port) trade — the single `MARITIME_TRADE` action type (4:1 bank / 3:1 / 2:1 port) — is **in scope and enabled** for the agent as of Phase 3. Earlier phases conflated it with player trading and masked all 60 maritime indices via `NoTradeWrapper`, which handicapped the agent vs every benchmark bot (Weighted/Value/AlphaBeta all use the bank). Charlesworth *kept* bank/port trade too; only his player-trade heads struggled. Set `env.enable_maritime_trade: true` to enable it (default stays `false` to preserve historical configs).
 - Reimplementing game logic — everything we build wraps or extends Catanatron
 - Imitation learning from human games (training is from scratch)
 - Distributed / multi-machine training
@@ -31,7 +32,7 @@ Get as close as possible to (and ideally beat) Catanatron's `AlphaBetaPlayer` wi
 - `wandb` for experiment tracking
 - `pytest` for tests
 
-For Phase 3 onwards we may need to drop SB3 and write a CleanRL-style custom PPO loop to support the multi-head policy cleanly. Decision deferred until we get there.
+We considered dropping SB3 for a CleanRL-style custom PPO loop to support multi-head / spatial policies. In the event this proved unnecessary: both the `factorized` and Phase-3 `spatial` policies are implemented as `MaskableActorCriticPolicy` subclasses (overriding `_build` / `forward` / `evaluate_actions` / `get_distribution` / `predict_values`), keeping all of MaskablePPO, the callbacks, and `RLPlayer` unchanged.
 
 ## Suggested repo layout
 
@@ -139,6 +140,19 @@ Phase 2 is deliberately not a fixed sequence. The actual direction is driven by 
 - Prefer cheap interventions before expensive ones. Reward shaping and feature engineering land before custom PPO loops.
 - Re-run the full ladder eval after every meaningful change so we always know whether the latest move actually improved things or made them worse.
 - Multi-head and league training are both plausible "biggest lever" choices, but we should earn that conclusion from data rather than assume it.
+
+### Phase 3 — Spatial pointer head + maritime trade re-enable
+
+Two defects discovered while reviewing the architecture, both fixed here (`configs/phase3.yaml`):
+
+1. **Positional information was destroyed.** `BoardCNN` / `BoardCNNAttn` both end by pooling the `(C, 21, 11)` board into one vector (`AdaptiveAvgPool2d(1)` / `mean`), so the action head ranked board locations from a position-blind global summary — it could not look at the local features *at* a candidate node/edge/tile. The `factorized` policy didn't help (its per-node head still read the pooled vector and forced settlement & city to share one logit). Since ~237/332 actions are location choices, this is the likely cause of weak placement play.
+   - **Fix — spatial pointer policy** (`catan_rl/policies/spatial.py` + `catan_rl/features/hex_encoder.py`, `policy: spatial`). `HexEncoder` keeps the full conv feature map (no pooling) plus a global vector `g`. For each location action, `SpatialActionHead` gathers the feature column at that action's grid cell (via Catanatron's `get_node_and_edge_maps()` / `get_tile_coordinate_map()`) and scores `[f_loc ; g]` with a small MLP. **Separate scorers for settlement vs city**; a learned victim-embedding bias for the robber; `Linear(d_g → size)` heads for non-spatial actions (maritime / year-of-plenty / monopoly / discard); a per-type bias preserves the factorized credit-assignment win. The output is still 332 flat logits → `MaskableCategoricalDistribution`, so masking / sampling / `RLPlayer` are unchanged.
+
+2. **Maritime (bank/port) trade was wrongly disabled** — see the scope correction above. `env.enable_maritime_trade: true` flips `NoTradeWrapper(strip_maritime=False)` and adds the maritime head; the flag threads through training, the self-play snapshot opponent, eval, and `RLPlayer` so they all match.
+
+Training: self-play ≥50% of the run (`scheduled` sampler ramps to `self=0.55` by ~8M steps and holds), reusing the existing reward-shaping / annealing / scheduled-opponent / self-snapshot infrastructure unchanged. An initial self-snapshot is saved at train start so the `self` slot is a real (weak) copy the moment the schedule introduces it. The timestep budget and device are **set after profiling** (`scripts/profile_device.py --policy spatial`).
+
+`boardcnn` / `factorized` remain in the repo as **legacy ablation baselines**.
 
 ---
 

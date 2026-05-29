@@ -12,6 +12,11 @@ class EnvConfig(BaseModel):
     map_type: Literal["BASE", "TOURNAMENT", "MINI"] = "BASE"
     representation: Literal["vector", "mixed"] = "mixed"
     vps_to_win: int = 10
+    # When False (the historical default), MARITIME_TRADE (bank/port 4:1/3:1/2:1)
+    # is masked off the agent's action space. Phase 3 sets this True so the agent
+    # can trade with the bank like every benchmark bot. Player<->player trades are
+    # not in the gym action space at all, so they are unaffected.
+    enable_maritime_trade: bool = False
 
 
 class EvalConfig(BaseModel):
@@ -98,7 +103,7 @@ class TrainConfig(BaseModel):
     n_envs: int = 8
     device: Literal["cpu", "mps", "cuda", "auto"] = "cpu"
     arch: Literal["boardcnn", "boardcnn_attn", "mlp"] = "boardcnn"
-    policy: Literal["flat", "factorized"] = "flat"
+    policy: Literal["flat", "factorized", "spatial"] = "flat"
 
     # Phase-1 simple-opponent name; if `opponent_cfg` is also set, that wins.
     opponent: Literal["random", "weighted"] = "weighted"

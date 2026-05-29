@@ -88,6 +88,7 @@ class MixedWithSelf(OpponentSampler):
         *,
         fallback_name: str = "weighted",
         representation: str = "mixed",
+        enable_maritime_trade: bool = False,
     ):
         if self.SELF_KEY not in mix:
             raise ValueError(f"MixedWithSelf requires a '{self.SELF_KEY}' entry in mix")
@@ -95,6 +96,7 @@ class MixedWithSelf(OpponentSampler):
         self.fallback_name = fallback_name
         self.fallback_factory = _builtin_factory(fallback_name)
         self.representation = representation
+        self.enable_maritime_trade = enable_maritime_trade
 
         self.names = list(mix.keys())
         weights = np.array([mix[n] for n in self.names], dtype=float)
@@ -117,12 +119,16 @@ class MixedWithSelf(OpponentSampler):
             return self.fallback_factory
         rep = self.representation
         snapshot_path = self.snapshot_path
+        enable_maritime = self.enable_maritime_trade
 
         def _factory(color: Color) -> Player:
             # Lazy import to keep module import cheap.
             from catan_rl.players.rl_player import RLPlayer
 
-            return RLPlayer(color, snapshot_path, representation=rep, deterministic=False)
+            return RLPlayer(
+                color, snapshot_path, representation=rep, deterministic=False,
+                enable_maritime_trade=enable_maritime,
+            )
 
         return _factory
 
@@ -155,6 +161,7 @@ class ScheduledOpponent(OpponentSampler):
         snapshot_path: Path | str | None = None,
         fallback_name: str = "weighted",
         representation: str = "mixed",
+        enable_maritime_trade: bool = False,
     ):
         if schedule_end_step <= schedule_start_step:
             raise ValueError("schedule_end_step must be > schedule_start_step")
@@ -173,6 +180,7 @@ class ScheduledOpponent(OpponentSampler):
         self.fallback_name = fallback_name
         self.fallback_factory = _builtin_factory(fallback_name)
         self.representation = representation
+        self.enable_maritime_trade = enable_maritime_trade
         self._builtin_factories: dict[str, OpponentFactory] = {
             n: _builtin_factory(n) for n in self.names if n != self.SELF_KEY
         }
@@ -217,17 +225,22 @@ class ScheduledOpponent(OpponentSampler):
             return self.fallback_factory
         rep = self.representation
         snapshot_path = self.snapshot_path
+        enable_maritime = self.enable_maritime_trade
 
         def _factory(color: Color) -> Player:
             from catan_rl.players.rl_player import RLPlayer
 
-            return RLPlayer(color, snapshot_path, representation=rep, deterministic=False)
+            return RLPlayer(
+                color, snapshot_path, representation=rep, deterministic=False,
+                enable_maritime_trade=enable_maritime,
+            )
 
         return _factory
 
 
 def build_sampler(opponent_cfg, *, snapshot_path: Path | str | None = None,
-                  representation: str = "mixed") -> OpponentSampler:
+                  representation: str = "mixed",
+                  enable_maritime_trade: bool = False) -> OpponentSampler:
     """Resolve an `OpponentConfig` to a concrete `OpponentSampler`."""
     if opponent_cfg.sampler == "single":
         name = next(iter(opponent_cfg.mix))
@@ -242,6 +255,7 @@ def build_sampler(opponent_cfg, *, snapshot_path: Path | str | None = None,
             snapshot_path=snapshot_path,
             fallback_name=opponent_cfg.self_fallback,
             representation=representation,
+            enable_maritime_trade=enable_maritime_trade,
         )
     if opponent_cfg.sampler == "scheduled":
         if snapshot_path is None:
@@ -254,5 +268,6 @@ def build_sampler(opponent_cfg, *, snapshot_path: Path | str | None = None,
             snapshot_path=snapshot_path,
             fallback_name=opponent_cfg.self_fallback,
             representation=representation,
+            enable_maritime_trade=enable_maritime_trade,
         )
     raise ValueError(f"unknown sampler {opponent_cfg.sampler!r}")

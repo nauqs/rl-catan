@@ -159,14 +159,24 @@ class SelfSnapshotCallback(BaseCallback):
         self.snapshot_every = snapshot_every
         self._last_snapshot_step = 0
 
-    def _on_step(self) -> bool:
-        if self.num_timesteps - self._last_snapshot_step < self.snapshot_every:
-            return True
-        self._last_snapshot_step = self.num_timesteps
+    def _save(self) -> None:
         self.snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.snapshot_path.with_suffix(self.snapshot_path.suffix + ".tmp")
         self.model.save(str(tmp))
         tmp.replace(self.snapshot_path)
         if self.verbose:
             print(f"[SelfSnapshot] step={self.num_timesteps} -> {self.snapshot_path}")
+
+    def _on_training_start(self) -> None:
+        # Snapshot once at the start so the 'self' opponent slot is a real (weak)
+        # copy the moment the schedule introduces it, rather than falling back.
+        if not self.snapshot_path.exists():
+            self._save()
+            self._last_snapshot_step = self.num_timesteps
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps - self._last_snapshot_step < self.snapshot_every:
+            return True
+        self._last_snapshot_step = self.num_timesteps
+        self._save()
         return True
