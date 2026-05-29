@@ -141,6 +141,12 @@ class OpponentScheduleCallback(BaseCallback):
 
     def _on_rollout_start(self) -> None:
         self.training_env.env_method("set_opponent_step", self.num_timesteps)
+        # Log the current interpolated opponent mix so the schedule is visible in W&B.
+        mixes = self.training_env.env_method("get_opponent_mix")
+        mix = mixes[0] if mixes else None
+        if mix:
+            for name, weight in mix.items():
+                self.logger.record(f"opponent/weight/{name}", float(weight))
 
     def _on_step(self) -> bool:
         return True

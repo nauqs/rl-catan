@@ -13,8 +13,10 @@
 # holds for the remainder. Reward shaping / annealing / PPO hypers copy phase2b
 # for comparability.
 #
-# NOTE: train.total_timesteps and train.device are placeholders — finalize them
-# from `uv run python scripts/profile_device.py --policy spatial`.
+# Device/budget finalized from `scripts/profile_device.py --policy spatial`:
+# MPS 266 sps vs CPU 90 sps (~3x) -> device: mps. Resource footprint kept
+# deliberately comfortable for a shared local machine (M3 Pro, 11 cores):
+# n_envs=6 leaves ~5 cores free; batch_size=1024 is fast on MPS at trivial memory.
 seed: 0
 run_name: phase3-spatial
 
@@ -24,9 +26,9 @@ env:
   enable_maritime_trade: true       # <-- bank/port trade ON for the agent
 
 train:
-  total_timesteps: 50_000_000       # PLACEHOLDER — set after profiling (30M / 50M)
-  n_envs: 8
-  device: mps                       # PLACEHOLDER — set from profiling
+  total_timesteps: 50_000_000
+  n_envs: 6                         # 6 of 11 cores -> comfortable headroom for other work
+  device: mps                       # profiled: ~3x faster than CPU for the spatial head
   arch: boardcnn                    # ignored by the spatial policy (HexEncoder owns the trunk)
   policy: spatial                   # <-- the new pointer head
 
@@ -68,14 +70,14 @@ train:
     gamma: 0.999
     gae_lambda: 0.95
     n_steps: 2048
-    batch_size: 512
+    batch_size: 1024                  # 6 envs x 2048 = 12288/rollout -> 12 minibatches (exact)
     ent_coef: 0.01
     learning_rate: 3.0e-4
     n_epochs: 10
     clip_range: 0.2
     vf_coef: 0.5
     max_grad_norm: 0.5
-  checkpoint_every: 2_000_000        # ~15-25 retained ckpts over the run
+  checkpoint_every: 5_000_000        # ~10 milestone ckpts; model.zip overwritten each rollout for resume
 
 eval:
   callback_opponents: [random, weighted, value]

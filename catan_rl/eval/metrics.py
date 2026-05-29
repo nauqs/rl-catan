@@ -55,6 +55,7 @@ def collect(game: Game, agent_color: Color) -> dict:
     n_knights_self_desert = 0 # robber to desert or own tile (wasted)
     n_discard = 0
     n_city_built = 0
+    n_maritime_trades = 0     # bank/port trades (re-enabled in Phase 3)
 
     for rec in records:
         a = rec.action
@@ -75,6 +76,8 @@ def collect(game: Game, agent_color: Color) -> dict:
             n_discard += 1
         elif t == ActionType.BUILD_CITY:
             n_city_built += 1
+        elif t == ActionType.MARITIME_TRADE:
+            n_maritime_trades += 1
 
     won = game.winning_color() == agent_color
     vp = get_actual_victory_points(state, agent_color)
@@ -100,6 +103,7 @@ def collect(game: Game, agent_color: Color) -> dict:
         "n_knights_self_desert": n_knights_self_desert,
         "n_discard": n_discard,
         "n_city_built": n_city_built,
+        "n_maritime_trades": n_maritime_trades,
         "turns": state.num_turns,
     }
 

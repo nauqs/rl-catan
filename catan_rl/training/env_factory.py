@@ -48,6 +48,12 @@ class RotatingOpponentWrapper(gym.Wrapper):
         use it to interpolate between start_mix and end_mix)."""
         self.sampler.set_step(step)
 
+    def get_opponent_mix(self) -> dict | None:
+        """Current interpolated opponent weights, for W&B logging. Returns None
+        for samplers without a schedule (the mix is constant / uninformative)."""
+        fn = getattr(self.sampler, "current_mix", None)
+        return fn() if callable(fn) else None
+
 
 def make_env(
     seed: int,

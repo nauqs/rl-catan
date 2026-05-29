@@ -29,8 +29,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--run-name", default=None)
     p.add_argument("--wandb", choices=["online", "offline", "disabled"], default=None)
     p.add_argument("--arch", choices=["boardcnn", "boardcnn_attn", "mlp"], default=None)
-    p.add_argument("--policy", choices=["flat", "factorized"], default=None,
-                   help="flat: default Linear head; factorized: type+parameter heads.")
+    p.add_argument("--policy", choices=["flat", "factorized", "spatial"], default=None,
+                   help="flat: default Linear head; factorized: type+parameter heads; "
+                        "spatial: position-preserving pointer head (Phase 3).")
     p.add_argument("--skip-final-ladder", action="store_true",
                    help="Skip the post-training 500-game ladder (saves ~10 min on AlphaBeta n=2).")
     return p.parse_args(argv)
