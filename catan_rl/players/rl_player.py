@@ -1,12 +1,41 @@
 """Catanatron Player that wraps a trained MaskablePPO checkpoint."""
 from __future__ import annotations
 
+import contextlib
+import io
 import random
 from pathlib import Path
 from typing import Literal, Optional
 
 import numpy as np
+import torch as th
 from sb3_contrib import MaskablePPO
+
+
+@contextlib.contextmanager
+def _force_cpu_deserialize():
+    """Force every torch storage to deserialize onto CPU during a load.
+
+    Snapshots saved from an MPS-trained model embed MPS-device tensors (both in
+    the policy state_dict and in SB3's cloudpickled `data` section, which ignores
+    the `device=` load arg). A forkserver env worker cannot initialize Metal, so
+    deserializing an MPS storage there aborts the whole worker process
+    (`storage.mps()` -> Fatal Python error: Aborted) -> the parent EOFs on the
+    pipe. Pinning `_load_from_bytes` to map_location='cpu' makes the worker load
+    any snapshot (MPS- or CPU-saved) without ever touching Metal. pickle resolves
+    the reducer by module+qualname at load time, so patching the attribute here
+    is picked up by the unpickler.
+    """
+    orig = th.storage._load_from_bytes
+
+    def _cpu_load_from_bytes(b):
+        return th.load(io.BytesIO(b), map_location="cpu")
+
+    th.storage._load_from_bytes = _cpu_load_from_bytes
+    try:
+        yield
+    finally:
+        th.storage._load_from_bytes = orig
 
 from catanatron import Player
 from catanatron.features import create_sample, get_feature_ordering
@@ -47,7 +76,11 @@ class RLPlayer(Player):
         enable_maritime_trade: bool = False,
     ):
         super().__init__(color)
-        self._model = MaskablePPO.load(str(model_path), device=device)
+        # device defaults to "cpu": opponents run inside forkserver env workers
+        # where MPS/Metal is unavailable. Force CPU deserialization so an
+        # MPS-saved snapshot can't abort the worker (see _force_cpu_deserialize).
+        with _force_cpu_deserialize():
+            self._model = MaskablePPO.load(str(model_path), device=device)
         self._map_type = map_type
         self._representation = representation
         self._deterministic = deterministic
@@ -56,14 +89,10 @@ class RLPlayer(Player):
         self._numeric_features_cache: dict[int, list[str]] = {}
         self._rng = random.Random(seed)
 
-    def decide(self, game, playable_actions):
-        if len(playable_actions) == 1:
-            return playable_actions[0]
-
-        player_colors = tuple(p.color for p in game.state.players)
-        action_array = get_action_array(player_colors, self._map_type)
+    def _build_obs(self, game, color: Optional[Color] = None):
+        """Rebuild the gym observation from ``color``'s perspective (default self)."""
+        color = color if color is not None else self.color
         num_players = len(game.state.players)
-
         if num_players not in self._features_cache:
             self._features_cache[num_players] = get_feature_ordering(
                 num_players, self._map_type
@@ -73,19 +102,19 @@ class RLPlayer(Player):
             ]
         features = self._features_cache[num_players]
 
-        sample = create_sample(game, self.color)
+        sample = create_sample(game, color)
         if self._representation == "vector":
-            obs = np.array([sample[f] for f in features], dtype=np.float32)
-        else:
-            numeric_features = self._numeric_features_cache[num_players]
-            board = create_board_tensor(game, self.color, channels_first=True).astype(
-                np.float32
-            )
-            numeric = np.array(
-                [sample[f] for f in numeric_features], dtype=np.float32
-            )
-            obs = {"board": board, "numeric": numeric}
+            return np.array([sample[f] for f in features], dtype=np.float32)
+        numeric_features = self._numeric_features_cache[num_players]
+        board = create_board_tensor(game, color, channels_first=True).astype(
+            np.float32
+        )
+        numeric = np.array([sample[f] for f in numeric_features], dtype=np.float32)
+        return {"board": board, "numeric": numeric}
 
+    def _build_mask(self, player_colors, playable_actions):
+        """Boolean action mask matching training (maritime stripped if disabled)."""
+        action_array = get_action_array(player_colors, self._map_type)
         valid_idx = {
             to_action_space(a, player_colors, self._map_type) for a in playable_actions
         }
@@ -96,6 +125,15 @@ class RLPlayer(Player):
             for i, (atype, _) in enumerate(action_array):
                 if atype in TRADE_ACTION_TYPES:
                     mask[i] = False
+        return mask
+
+    def decide(self, game, playable_actions):
+        if len(playable_actions) == 1:
+            return playable_actions[0]
+
+        player_colors = tuple(p.color for p in game.state.players)
+        obs = self._build_obs(game)
+        mask = self._build_mask(player_colors, playable_actions)
 
         if not mask.any():
             return self._rng.choice(list(playable_actions))
