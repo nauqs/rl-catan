@@ -11,7 +11,10 @@ from __future__ import annotations
 import gymnasium as gym
 
 from catanatron.models.enums import ActionType
-from catanatron.state_functions import get_actual_victory_points
+from catanatron.state_functions import (
+    get_actual_victory_points,
+    get_longest_road_length,
+)
 
 from catan_rl.utils.config import RewardConfig
 
@@ -64,6 +67,9 @@ class ShapedRewardWrapper(gym.Wrapper):
         self.dense_factor: float = 1.0
         self._prev_vp: int = 0
         self._prev_records_len: int = 0
+        self._prev_longest: int = 0
+        self._init_res_union: set = set()
+        self._init_settle_count: int = 0
 
     # ---- public hook for AnnealingCallback ------------------------------------
     def set_dense_factor(self, factor: float) -> None:
@@ -75,7 +81,29 @@ class ShapedRewardWrapper(gym.Wrapper):
         u = self.env.unwrapped
         self._prev_vp = get_actual_victory_points(u.game.state, u.p0.color)
         self._prev_records_len = len(u.game.state.action_records)
+        self._prev_longest = get_longest_road_length(u.game.state, u.p0.color)
+        self._init_res_union = set()
+        self._init_settle_count = 0
         return obs, info
+
+    @staticmethod
+    def _tile_adjacency(board, tile_coord, agent_color):
+        """(tile_pip, opp_adjacent, self_adjacent) for a robber target tile."""
+        tile = board.map.land_tiles.get(tile_coord)
+        if tile is None:
+            return 0, False, False
+        pip = _PIPS.get(tile.number, 0)
+        opp_adj = self_adj = False
+        for node_id in tile.nodes.values():
+            owner = board.buildings.get(node_id)
+            if owner is None:
+                continue
+            color = owner[0]
+            if color == agent_color:
+                self_adj = True
+            else:
+                opp_adj = True
+        return pip, opp_adj, self_adj
 
     def step(self, action):
         obs, base_reward, terminated, truncated, info = self.env.step(action)
@@ -88,17 +116,18 @@ class ShapedRewardWrapper(gym.Wrapper):
         agent_color = u.p0.color
         cfg = self.cfg
 
-        dense = 0.0
+        annealed = 0.0      # VP/building/placement signals (× dense_factor)
+        persistent = 0.0    # efficiency/tactics (always on): roads/maritime/robber
 
-        # VP delta
+        # VP delta (annealed)
         cur_vp = get_actual_victory_points(state, agent_color)
-        dense += cfg.vp_coef * (cur_vp - self._prev_vp)
+        annealed += cfg.vp_coef * (cur_vp - self._prev_vp)
         self._prev_vp = cur_vp
 
-        # Per-step penalty (always applied to every env step)
-        dense += cfg.per_turn_penalty
+        # Per-step penalty (annealed)
+        annealed += cfg.per_turn_penalty
 
-        # Action-record-driven dense terms (BLUE's actions only)
+        # Action-record-driven terms (BLUE's actions only)
         records = state.action_records
         for rec in records[self._prev_records_len :]:
             act = rec.action
@@ -107,47 +136,63 @@ class ShapedRewardWrapper(gym.Wrapper):
             atype = act.action_type
 
             if atype in _DEV_PLAY_TYPES:
-                dense += cfg.dev_play_reward
+                annealed += cfg.dev_play_reward
 
             elif atype == ActionType.MOVE_ROBBER:
-                # value = (tile_coord, victim_color)
+                # value = (tile_coord, victim_color). PERSISTENT: +pip×opp, -pip×self, +steal.
                 target_tile_coord = act.value[0] if act.value else None
                 victim = act.value[1] if (act.value and len(act.value) > 1) else None
-                opp_adjacent = victim is not None and victim != agent_color
-                if opp_adjacent:
-                    dense += cfg.robber_target_opponent
-                if cfg.robber_blocks_high_pip and opp_adjacent and target_tile_coord is not None:
+                if target_tile_coord is not None:
+                    pip, opp_adj, self_adj = self._tile_adjacency(
+                        board, target_tile_coord, agent_color
+                    )
+                    if opp_adj:
+                        persistent += cfg.robber_block_opp_pip * pip
+                    if self_adj:
+                        persistent += cfg.robber_block_self_pip * pip  # coef is negative
+                # legacy (annealed) terms, kept for back-compat
+                opp_victim = victim is not None and victim != agent_color
+                if opp_victim:
+                    annealed += cfg.robber_target_opponent
+                    persistent += cfg.robber_steal
+                if cfg.robber_blocks_high_pip and opp_victim and target_tile_coord is not None:
                     tile = board.map.land_tiles.get(target_tile_coord)
                     if tile is not None:
-                        dense += cfg.robber_blocks_high_pip * _PIPS.get(tile.number, 0)
+                        annealed += cfg.robber_blocks_high_pip * _PIPS.get(tile.number, 0)
+
+            elif atype == ActionType.MARITIME_TRADE:
+                # value = (give1..give4, receive); n_gives determines the rate.
+                n_gives = sum(1 for x in act.value[:-1] if x is not None)
+                persistent += cfg.maritime_penalty * max(0, n_gives - 1)
+
+            elif atype == ActionType.BUILD_ROAD:
+                persistent += cfg.road_cost
+                cur_longest = get_longest_road_length(state, agent_color)
+                if cur_longest > self._prev_longest:
+                    persistent += cfg.longest_road_delta * (cur_longest - self._prev_longest)
+                self._prev_longest = cur_longest
 
             elif atype == ActionType.DISCARD_RESOURCE:
-                dense += cfg.discard_penalty
+                annealed += cfg.discard_penalty
 
             elif atype == ActionType.BUILD_CITY:
-                dense += cfg.city_bonus
+                annealed += cfg.city_bonus
 
             elif atype == ActionType.BUILD_SETTLEMENT:
-                # Initial-placement bonuses fire only during the initial-build phase.
-                # We must check whether the settlement was placed during initial phase.
-                # Heuristic: the agent has at most 2 initial settlements; count agent
-                # settlements before this record was applied to decide.
-                if cfg.initial_placement_pip != 0.0 or cfg.initial_placement_diversity != 0.0:
-                    node_id = act.value
-                    tiles = board.map.adjacent_tiles.get(node_id, [])
+                node_id = act.value
+                tiles = board.map.adjacent_tiles.get(node_id, [])
+                resources = {t.resource for t in tiles if t.resource is not None}
+                # Initial-placement (first 2 settlements): pip per-settlement + combined coverage.
+                if self._init_settle_count < 2:
                     pip_sum = sum(_PIPS.get(t.number, 0) for t in tiles)
-                    resources = {t.resource for t in tiles if t.resource is not None}
-                    # We only count first two settlement-builds (initial phase).
-                    # Counting from action_records is robust to state mutations.
-                    settlements_so_far = sum(
-                        1 for r2 in records
-                        if r2.action.color == agent_color
-                        and r2.action.action_type == ActionType.BUILD_SETTLEMENT
-                        and records.index(r2) <= records.index(rec)
-                    )
-                    if settlements_so_far <= 2:
-                        dense += cfg.initial_placement_pip * pip_sum
-                        dense += cfg.initial_placement_diversity * len(resources)
+                    annealed += cfg.initial_placement_pip * pip_sum
+                    annealed += cfg.initial_placement_diversity * len(resources)
+                    self._init_res_union |= resources
+                    self._init_settle_count += 1
+                    if self._init_settle_count == 2 and cfg.placement_coverage:
+                        annealed += cfg.placement_coverage.get(len(self._init_res_union), 0.0)
+                else:
+                    annealed += cfg.settlement_bonus
 
         self._prev_records_len = len(records)
 
@@ -156,9 +201,10 @@ class ShapedRewardWrapper(gym.Wrapper):
         terminal = 0.0
         if terminated or truncated:
             winner = u.game.winning_color()
-            if winner == agent_color:
-                terminal = cfg.win_reward
-            else:
-                terminal = cfg.loss_reward
+            terminal = cfg.win_reward if winner == agent_color else cfg.loss_reward
 
-        return obs, terminal + self.dense_factor * dense, terminated, truncated, info
+        return (
+            obs,
+            terminal + self.dense_factor * annealed + persistent,
+            terminated, truncated, info,
+        )

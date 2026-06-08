@@ -55,6 +55,9 @@ class MiniLadderCallback(BaseCallback):
         save_dir: Path,
         representation: str = "mixed",
         enable_maritime_trade: bool = False,
+        snapshot_path: Path | None = None,
+        best_past_self: bool = False,
+        eps_cfg: dict | None = None,
         verbose: int = 0,
     ):
         super().__init__(verbose)
@@ -64,8 +67,23 @@ class MiniLadderCallback(BaseCallback):
         self.save_dir = Path(save_dir)
         self.representation = representation
         self.enable_maritime_trade = enable_maritime_trade
+        # When set, the self-opponent snapshot tracks the BEST checkpoint by
+        # overall winrate (rather than the latest) — drives the adaptive curriculum.
+        self.snapshot_path = Path(snapshot_path) if snapshot_path is not None else None
+        self.best_past_self = best_past_self
+        # Epsilon auto-calibration (epsilon curriculum). dict with keys
+        # base/target/lr/init/games. Epsilon persists in <save_dir>/epsilon.txt
+        # so resumes continue from the calibrated value.
+        self.eps_cfg = eps_cfg
+        self._eps: float | None = None
+        if eps_cfg is not None:
+            eps_file = self.save_dir / "epsilon.txt"
+            try:
+                self._eps = float(eps_file.read_text().strip())
+            except (FileNotFoundError, ValueError):
+                self._eps = float(eps_cfg["init"])
         self._last_eval_step = 0
-        self._best_random_wr: float = -1.0
+        self._best_overall_wr: float = -1.0
 
     def _on_step(self) -> bool:
         if self.num_timesteps - self._last_eval_step < self.eval_every:
@@ -103,19 +121,55 @@ class MiniLadderCallback(BaseCallback):
                 modes=("1v1",),
             )
 
-            random_wr = 0.0
+            winrates: dict[str, float] = {}
             for row in result.by_opponent:
                 self.logger.record(f"eval/1v1/{row.opponent}/winrate", row.winrate)
                 self.logger.record(f"eval/1v1/{row.opponent}/mean_vp", row.mean_vp)
                 self.logger.record(f"eval/1v1/{row.opponent}/mean_turns", row.mean_turns)
-                if row.opponent == "random":
-                    random_wr = row.winrate
+                winrates[row.opponent] = row.winrate
 
-            if random_wr > self._best_random_wr:
-                self._best_random_wr = random_wr
+            # Push winrates to the env workers' samplers (adaptive curriculum).
+            try:
+                self.training_env.env_method("set_opponent_winrates", winrates)
+            except Exception:
+                pass
+
+            # Overall strength = mean winrate across eval opponents. Drives both
+            # best.zip and the best-past self snapshot.
+            overall = sum(winrates.values()) / max(1, len(winrates))
+            self.logger.record("eval/overall_wr", overall)
+            if overall > self._best_overall_wr:
+                self._best_overall_wr = overall
                 self.save_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy(ckpt, self.save_dir / "best.zip")
-                self.logger.record("eval/best_random_wr", random_wr)
+                if self.best_past_self and self.snapshot_path is not None:
+                    shutil.copy(ckpt, self.snapshot_path)  # self-opponent = best so far
+
+            # --- epsilon auto-calibration (epsilon curriculum) ---
+            if self.eps_cfg is not None and self._eps is not None:
+                from catan_rl.training.opponents import EpsilonPlayer
+                ec = self.eps_cfg
+                wins = 0
+                for s in range(int(ec["games"])):
+                    game = Game(
+                        [factory(Color.BLUE),
+                         EpsilonPlayer(Color.RED, build_opponent(ec["base"], Color.RED),
+                                       self._eps, seed=self.num_timesteps + s)],
+                        seed=self.num_timesteps + s,
+                    )
+                    game.play()
+                    wins += int(game.winning_color() == Color.BLUE)
+                eps_wr = wins / max(1, int(ec["games"]))
+                # wr below target -> opponent too hard -> raise epsilon (easier).
+                self._eps = float(min(1.0, max(0.0,
+                    self._eps + float(ec["lr"]) * (float(ec["target"]) - eps_wr))))
+                (self.save_dir / "epsilon.txt").write_text(f"{self._eps:.4f}")
+                try:
+                    self.training_env.env_method("set_opponent_epsilon", self._eps)
+                except Exception:
+                    pass
+                self.logger.record("opponent/epsilon", self._eps)
+                self.logger.record("eval/1v1/eps_value/winrate", eps_wr)
 
             # --- cheap behavioral metrics (10 stochastic games vs weighted) ---
             beh_rows = []

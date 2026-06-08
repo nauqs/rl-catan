@@ -48,6 +48,18 @@ class RotatingOpponentWrapper(gym.Wrapper):
         use it to interpolate between start_mix and end_mix)."""
         self.sampler.set_step(step)
 
+    def set_opponent_winrates(self, winrates: dict) -> None:
+        """Forward recent eval winrates to the sampler (adaptive curriculum)."""
+        fn = getattr(self.sampler, "set_winrates", None)
+        if callable(fn):
+            fn(winrates)
+
+    def set_opponent_epsilon(self, eps: float) -> None:
+        """Forward the auto-calibrated epsilon to the sampler (epsilon curriculum)."""
+        fn = getattr(self.sampler, "set_epsilon", None)
+        if callable(fn):
+            fn(eps)
+
     def get_opponent_mix(self) -> dict | None:
         """Current interpolated opponent weights, for W&B logging. Returns None
         for samplers without a schedule (the mix is constant / uninformative)."""
