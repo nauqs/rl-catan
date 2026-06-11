@@ -1,0 +1,94 @@
+# Phase 5 — BC warm start + RL fine-tune.
+#
+# Empirical basis (2026-06-10): a 6.5-min behavior-clone of ValueFunctionPlayer
+# (2k games) beat value 27% / weighted 97% — vs 0-6% for every multi-day pure-RL
+# run. The wall was exploration: PPO never discovers the tempo style; imitation
+# injects it directly. Pipeline:
+#   1. scripts/bc_pretrain.py: ~8k value-vs-value games -> BC the spatial policy
+#      (+ pretrain the value head on discounted terminal outcomes so PPO's early
+#      advantages don't destroy the BC policy) -> seeds this run's model.zip,
+#      self_snapshot.zip (self-play starts at BC strength) and epsilon.txt.
+#   2. RL fine-tune (this config) from that init: epsilon curriculum vs value,
+#      LR warmup 2M (protects BC policy while the critic calibrates on-policy),
+#      ent_coef back to 0.01 (0.02 would dither the cloned policy).
+seed: 0
+run_name: bc-ppo
+
+env:
+  map_type: BASE
+  representation: mixed
+  enable_maritime_trade: true
+
+train:
+  total_timesteps: 60_000_000
+  n_envs: 6
+  device: mps
+  arch: boardcnn
+  policy: spatial
+  trunk: hexformer
+
+  opponent_cfg:
+    sampler: epsilon
+    eps_base: value
+    eps_init: 0.30                    # BC init already ~27% vs value; epsilon.txt seeds this
+    eps_target: 0.5
+    eps_lr: 0.25
+    eps_games: 12
+    self_weight: 0.5
+    eps_weight: 0.35
+    eps_floor_mix: {value: 0.10, alphabeta1: 0.05}
+    best_past_self: true
+    self_fallback: value              # until first eval snapshot; value matches BC style
+    snapshot_every_steps: 1_000_000
+
+  reward:
+    enabled: true
+    anneal_start_step: 30_000_000
+    anneal_end_step: 45_000_000
+    win_reward: 500.0
+    loss_reward: -500.0
+    vp_coef: 5.0
+    city_bonus: 15.0
+    settlement_bonus: 5.0
+    dev_play_reward: 2.0
+    discard_penalty: -0.25
+    initial_placement_pip: 2.0
+    initial_placement_diversity: 0.0
+    placement_coverage: {5: 10.0, 4: 4.0, 3: -2.0, 2: -5.0, 1: -9.0}
+    per_turn_penalty: -0.05
+    robber_target_opponent: 0.0
+    robber_blocks_high_pip: 0.0
+    road_cost: -0.05
+    longest_road_delta: 0.4
+    maritime_penalty: -0.1
+    robber_block_opp_pip: 0.4
+    robber_block_self_pip: -0.6
+    robber_steal: 1.0
+
+  ppo:
+    gamma: 0.999
+    gae_lambda: 0.95
+    n_steps: 2048
+    batch_size: 1024
+    ent_coef: 0.01                    # cloned policy is sharp; don't dither it away
+    learning_rate: 1.0e-4
+    n_epochs: 10
+    clip_range: 0.2
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+    warmup_steps: 2_000_000           # protect the BC policy while the critic calibrates
+  checkpoint_every: 5_000_000
+
+eval:
+  callback_opponents: [weighted, value, alphabeta1, alphabeta2]
+  callback_games: 20
+  callback_every: 300_000
+  run_final_ladder: true
+  final_opponents: [random, weighted, value, alphabeta1, alphabeta2]
+  final_games: 500
+  final_modes: ["1v1"]
+
+wandb:
+  project: catan-rl
+  mode: online
+  entity: null

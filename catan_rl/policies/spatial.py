@@ -234,6 +234,31 @@ class SpatialActionHead(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# Attention value head (optional): the critic attends over the spatial map
+# instead of reading only the pooled global vector. The policy head has always
+# had location-level access; this gives the critic the same, fixing the
+# structurally-coarse V(s) that miscalibrates off-distribution.
+# ---------------------------------------------------------------------------
+
+class AttnValueHead(nn.Module):
+    def __init__(self, c_map: int, d_g: int, n_heads: int = 4, hidden: int = 256):
+        super().__init__()
+        self.query = nn.Parameter(th.randn(1, 1, c_map) * 0.02)
+        self.attn = nn.MultiheadAttention(c_map, n_heads, batch_first=True)
+        self.mlp = nn.Sequential(
+            nn.Linear(c_map + d_g, hidden), nn.ReLU(inplace=True),
+            nn.Linear(hidden, hidden), nn.ReLU(inplace=True),
+            nn.Linear(hidden, 1),
+        )
+
+    def forward(self, feat_map: th.Tensor, g: th.Tensor) -> th.Tensor:
+        b = feat_map.shape[0]
+        seq = feat_map.flatten(2).transpose(1, 2)          # (B, H*W, C)
+        pooled, _ = self.attn(self.query.expand(b, -1, -1), seq, seq)
+        return self.mlp(th.cat([pooled.squeeze(1), g], dim=1))
+
+
+# ---------------------------------------------------------------------------
 # Policy wrapper
 # ---------------------------------------------------------------------------
 
@@ -256,11 +281,13 @@ class SpatialMaskableActorCriticPolicy(MaskableActorCriticPolicy):
         player_colors: tuple = (Color.BLUE, Color.RED),
         map_type: str = "BASE",
         enable_maritime: bool = True,
+        value_head: str = "mlp",   # "mlp" (legacy, reads g only) | "attn" (attends over map)
         **kwargs,
     ):
         self._player_colors_raw = player_colors
         self._map_type = map_type
         self._enable_maritime = enable_maritime
+        self._value_head_kind = value_head
         super().__init__(*args, **kwargs)
 
     def _build(self, lr_schedule) -> None:
@@ -276,14 +303,17 @@ class SpatialMaskableActorCriticPolicy(MaskableActorCriticPolicy):
         self.action_head = SpatialActionHead(
             meta, map_shape=self._map_shape, d_g=self._d_g
         )
-        # Value head reads the global vector g only.
-        self.value_net = nn.Sequential(
-            nn.Linear(self._d_g, 256),
-            nn.ReLU(inplace=True),
-            nn.Linear(256, 256),
-            nn.ReLU(inplace=True),
-            nn.Linear(256, 1),
-        )
+        # Value head: legacy MLP reads g only; "attn" attends over the feature map.
+        if self._value_head_kind == "attn":
+            self.value_net = AttnValueHead(self._map_shape[0], self._d_g)
+        else:
+            self.value_net = nn.Sequential(
+                nn.Linear(self._d_g, 256),
+                nn.ReLU(inplace=True),
+                nn.Linear(256, 256),
+                nn.ReLU(inplace=True),
+                nn.Linear(256, 1),
+            )
         # Drop the bypassed default heads so they don't bloat the checkpoint.
         self.action_net = nn.Identity()
         self.mlp_extractor = nn.Identity()
@@ -301,9 +331,14 @@ class SpatialMaskableActorCriticPolicy(MaskableActorCriticPolicy):
         g = feats[:, n_map:]
         return feat_map, g
 
+    def _value(self, feat_map: th.Tensor, g: th.Tensor) -> th.Tensor:
+        if self._value_head_kind == "attn":
+            return self.value_net(feat_map, g)
+        return self.value_net(g)
+
     def _logits_and_value(self, obs) -> tuple[th.Tensor, th.Tensor]:
         feat_map, g = self._split(self.extract_features(obs))
-        return self.action_head(feat_map, g), self.value_net(g)
+        return self.action_head(feat_map, g), self._value(feat_map, g)
 
     # ---- overrides (keep masking / sampling / log-prob / entropy intact) ----
     def forward(self, obs, deterministic: bool = False, action_masks=None):
@@ -332,5 +367,5 @@ class SpatialMaskableActorCriticPolicy(MaskableActorCriticPolicy):
         return dist
 
     def predict_values(self, obs):
-        _, g = self._split(self.extract_features(obs))
-        return self.value_net(g)
+        feat_map, g = self._split(self.extract_features(obs))
+        return self._value(feat_map, g)
