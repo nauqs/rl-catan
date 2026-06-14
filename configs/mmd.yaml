@@ -1,0 +1,105 @@
+# Phase 5 — BC warm start + RL with the IIG-paper recipe + a MOVING magnet.
+#
+# Why (see LOGBOOK Phase-5 "Paper review (Jun 15)", arXiv 2502.08938):
+#   - v1/v2/v3-lean all collapsed: PPO drifts off the BC manifold -> critic wrong
+#     -> bad advantages -> death spiral.
+#   - The fixed KL-to-BC anchor (phase5_anchor_v2) STOPS the collapse but CAPS at
+#     BC, because exceeding BC means leaving the manifold a *fixed* magnet defends.
+#   - Fix: (a) tune PPO for the imperfect-information regime — much tighter trust
+#     region (clip 0.2 -> 0.05), higher entropy, lower value weight, low LR; and
+#     (b) make the magnet MOVE (EMA toward the current policy, MMD/R-NaD style) so
+#     each step stays stable yet the competence floor can rise above BC.
+#
+# Start from the durable BC seed (checkpoints/bc_seed) copied into the run dir,
+# then `train.py --resume` (which now re-applies these PPO hypers over the seed's
+# BC-era ones via _apply_ppo_hypers).
+seed: 0
+run_name: mmd
+
+env:
+  map_type: BASE
+  representation: mixed
+  enable_maritime_trade: true
+
+train:
+  total_timesteps: 60_000_000
+  n_envs: 6
+  device: mps
+  arch: boardcnn
+  policy: spatial
+  trunk: hexformer
+
+  opponent_cfg:
+    sampler: epsilon
+    eps_base: value
+    eps_init: 0.30
+    eps_target: 0.5
+    eps_lr: 0.25
+    eps_games: 12
+    self_weight: 0.5
+    eps_weight: 0.35
+    eps_floor_mix: {value: 0.10, alphabeta1: 0.05}
+    best_past_self: true
+    self_fallback: value
+    snapshot_every_steps: 1_000_000
+
+  reward:
+    enabled: true
+    anneal_start_step: -1
+    anneal_end_step: -1
+    win_reward: 500.0
+    loss_reward: -500.0
+    vp_coef: 5.0
+    city_bonus: 2.5
+    settlement_bonus: 0.0
+    dev_play_reward: 2.0
+    discard_penalty: -0.3
+    initial_placement_pip: 0.0
+    initial_placement_diversity: 0.0
+    placement_coverage: {}
+    per_turn_penalty: 0.0
+    robber_target_opponent: 1.0
+    robber_blocks_high_pip: 0.0
+    road_cost: 0.0
+    longest_road_delta: 0.0
+    maritime_penalty: 0.0
+    robber_block_opp_pip: 0.0
+    robber_block_self_pip: 0.0
+    robber_steal: 0.0
+
+  ppo:
+    gamma: 0.999
+    gae_lambda: 0.95
+    n_steps: 2048
+    batch_size: 1024
+    n_epochs: 4               # fewer epochs -> less drift per rollout (paper: 4-8)
+    learning_rate: 6.0e-5     # IIG regime: low LR
+    warmup_steps: 300_000     # gentle start protects the clone while critic re-tracks
+    clip_range: 0.05          # IIG regime: tight trust region (was 0.2) -- key anti-drift
+    ent_coef: 0.03            # higher than 0.01 (mixed-equilibrium policy is correct in IIG)
+    ent_coef_final: 0.03      # constant for a1 (no anneal yet)
+    vf_coef: 0.1              # IIG regime: low value weight (miscalibrated critic does less harm)
+    max_grad_norm: 0.5
+    # Moving magnet (the ceiling-raiser). EMA-track the policy each rollout so the
+    # magnet stays competent but is not pinned to BC.
+    kl_coef: 1.0              # weight of KL(pi || magnet); fixed (kl_target 0)
+    kl_target: 0.0
+    magnet_mode: ema
+    magnet_ema: 0.01          # tau per rollout (~100-rollout / ~1.2M-step time constant)
+    mmd_kl_coef: 0.0          # MMD proximal term off for a1 (clip handles per-update)
+  checkpoint_every: 5_000_000
+  critic_warmup_steps: 0      # the seed is already critic-warmed
+
+eval:
+  callback_opponents: [weighted, value, alphabeta1, alphabeta2]
+  callback_games: 20
+  callback_every: 300_000
+  run_final_ladder: true
+  final_opponents: [random, weighted, value, alphabeta1, alphabeta2]
+  final_games: 500
+  final_modes: ["1v1"]
+
+wandb:
+  project: catan-rl
+  mode: online
+  entity: null

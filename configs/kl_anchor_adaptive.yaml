@@ -1,0 +1,109 @@
+# Phase 5 — BC warm start + RL with a KL-to-BC anchor (run #1 of the
+# anchor / ExIt / combined sequence).
+#
+# Why: three BC->PPO runs (v1 naked, v2 critic-warmup, v3 lean) all collapsed the
+# same way — PPO drifts the policy off the BC demonstration manifold, the critic
+# can't track it there, advantages go bad, competence bleeds to 0. Critic warmup
+# and the lean reward only DELAYED the drift (collapse onset 5M -> ~10M).
+#
+# This run attacks the drift directly: KLAnchoredMaskablePPO adds
+# `kl_coef * KL(pi || pi_ref)` to the policy loss, with pi_ref a frozen copy of
+# the BC seed (captured to run_dir/bc_ref.zip at first launch). PPO can still
+# improve, but only inside a trust region around the competent prior — it cannot
+# walk off into the collapse zone. Exactly RLHF's KL-to-reference penalty.
+#
+# Single new variable vs configs/bc_ppo_lean.yaml: ppo.kl_coef (everything else
+# identical, so any difference is attributable to the anchor).
+seed: 0
+run_name: kl-anchor-adaptive
+
+env:
+  map_type: BASE
+  representation: mixed
+  enable_maritime_trade: true
+
+train:
+  total_timesteps: 60_000_000
+  n_envs: 6
+  device: mps
+  arch: boardcnn
+  policy: spatial
+  trunk: hexformer
+
+  opponent_cfg:
+    sampler: epsilon
+    eps_base: value
+    eps_init: 0.30
+    eps_target: 0.5
+    eps_lr: 0.25
+    eps_games: 12
+    self_weight: 0.5
+    eps_weight: 0.35
+    eps_floor_mix: {value: 0.10, alphabeta1: 0.05}
+    best_past_self: true
+    self_fallback: value
+    snapshot_every_steps: 1_000_000
+
+  reward:
+    enabled: true
+    anneal_start_step: -1
+    anneal_end_step: -1
+    win_reward: 500.0
+    loss_reward: -500.0
+    vp_coef: 5.0
+    city_bonus: 2.5
+    settlement_bonus: 0.0
+    dev_play_reward: 2.0
+    discard_penalty: -0.3
+    initial_placement_pip: 0.0
+    initial_placement_diversity: 0.0
+    placement_coverage: {}
+    per_turn_penalty: 0.0
+    robber_target_opponent: 1.0
+    robber_blocks_high_pip: 0.0
+    road_cost: 0.0
+    longest_road_delta: 0.0
+    maritime_penalty: 0.0
+    robber_block_opp_pip: 0.0
+    robber_block_self_pip: 0.0
+    robber_steal: 0.0
+
+  ppo:
+    gamma: 0.999
+    gae_lambda: 0.95
+    n_steps: 2048
+    batch_size: 1024
+    ent_coef: 0.01
+    learning_rate: 1.0e-4
+    n_epochs: 10
+    clip_range: 0.2
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+    warmup_steps: 2_000_000
+    # KL-to-BC anchor strength.
+    # kl_coef 0.3 (first 5M): no collapse, but too loose — policy drifted to
+    # KL~0.4 from BC and settled BELOW the BC seed (greedy value 0.15-0.20 vs
+    # BC 0.40; AB1 drifted 0.45->0.15). PPO's reward gradient pulls toward a
+    # value-net-preferred but truly-weaker region; the weak anchor didn't hold.
+    # Pre-registered response (competence bleeds while kl_anchor climbs): RAISE.
+    # 1.0 should pull the equilibrium to KL~0.12 (anchor grad ~ 1/coef), close to
+    # BC while still allowing improvement. Resumed from the 5M drifted state to
+    # watch whether the tighter anchor RECOVERS competence toward BC.
+    kl_coef: 0.5
+    kl_target: 0.15
+  checkpoint_every: 5_000_000
+  critic_warmup_steps: 1_000_000
+
+eval:
+  callback_opponents: [weighted, value, alphabeta1, alphabeta2]
+  callback_games: 20
+  callback_every: 300_000
+  run_final_ladder: true
+  final_opponents: [random, weighted, value, alphabeta1, alphabeta2]
+  final_games: 500
+  final_modes: ["1v1"]
+
+wandb:
+  project: catan-rl
+  mode: online
+  entity: null
