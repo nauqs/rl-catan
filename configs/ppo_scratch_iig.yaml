@@ -1,0 +1,98 @@
+# Phase 6 — Run 2: LONG scratch self-play PPO with a FIXED competent curriculum.
+#
+# s1/s2 (scratch) failed on the CURRICULUM, not PPO: 50% self + 50% epsilon-value
+# collapsed because epsilon ratcheted to ~1.0 (value playing random) once the agent
+# stalled, so it only ever faced random + weak-self -> no competent opponent to learn
+# from -> plateau at weighted ~0.65 / value 0. s2 also showed entropy 0.06 (s1) kept
+# the policy random; 0.02 fixed that.
+#
+# Run 2 fixes both: keep the working entropy (0.02->0.01) AND replace eps-value with a
+# STABLE competent mix that can't collapse:
+#   mixed_with_self {weighted 0.3, value 0.2, self 0.5}
+#   - weighted (0.3): from-scratch BOOTSTRAP (Phase-1's proven sweet spot; random is too
+#     weak, real value too hard early).
+#   - value (0.2): constant exposure to the real EVAL TARGET (no eps weakening).
+#   - self (0.5): the self-play engine for climbing past the teacher.
+# Lean dense reward (credit assignment), Charlesworth-ish; long run (40M), auto-restart,
+# JUDGED AT THE END: does value-wr climb off 0 toward / past BC's 0.42?
+seed: 0
+run_name: ppo-scratch-iig
+
+env:
+  map_type: BASE
+  representation: mixed
+  enable_maritime_trade: true
+
+train:
+  total_timesteps: 80_000_000        # continued 40M->80M (Jun 21): weighted mastered, push value
+  n_envs: 6
+  device: mps
+  arch: boardcnn
+  policy: spatial
+  trunk: hexformer
+
+  opponent_cfg:
+    sampler: mixed_with_self
+    # Rebalanced @40M: weighted is mastered (0.9), so redirect compute onto the
+    # unbeaten rung. was {weighted 0.3, value 0.2, self 0.5}.
+    mix: {weighted: 0.15, value: 0.35, self: 0.5}
+    self_fallback: weighted          # until the first best-snapshot exists
+    best_past_self: true
+    snapshot_every_steps: 1_000_000
+
+  reward:
+    enabled: true
+    anneal_start_step: -1
+    anneal_end_step: -1
+    win_reward: 500.0
+    loss_reward: 0.0                  # Charlesworth positive-only terminal
+    vp_coef: 5.0
+    city_bonus: 2.5
+    settlement_bonus: 0.0
+    dev_play_reward: 2.0
+    discard_penalty: -0.3
+    initial_placement_pip: 0.0
+    initial_placement_diversity: 0.0
+    placement_coverage: {}
+    per_turn_penalty: 0.0
+    robber_target_opponent: 1.0
+    robber_blocks_high_pip: 0.0
+    road_cost: 0.0
+    longest_road_delta: 0.0
+    maritime_penalty: 0.0
+    robber_block_opp_pip: 0.0
+    robber_block_self_pip: 0.0
+    robber_steal: 0.0
+
+  ppo:
+    gamma: 0.999
+    gae_lambda: 0.95
+    n_steps: 2048
+    batch_size: 1024
+    n_epochs: 4
+    learning_rate: 1.0e-4
+    warmup_steps: 1_000_000
+    clip_range: 0.1
+    ent_coef: 0.02                    # s2-proven (0.06 kept it random); ...
+    ent_coef_final: 0.01              # ...mild anneal, keep exploring over the long run
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+    kl_coef: 0.0
+    kl_target: 0.0
+    magnet_mode: fixed
+    mmd_kl_coef: 0.02                 # light trust-region stability
+  checkpoint_every: 5_000_000
+
+eval:
+  callback_opponents: [weighted, value, alphabeta1, alphabeta2]
+  callback_games: 20
+  callback_every: 500_000
+  run_final_ladder: true
+  final_opponents: [random, weighted, value, alphabeta1, alphabeta2]
+  final_games: 500
+  final_modes: ["1v1"]
+
+wandb:
+  project: catan-rl
+  mode: online
+  entity: null
