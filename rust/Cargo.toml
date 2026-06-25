@@ -1,0 +1,10 @@
+[workspace]
+members = ["catan-core", "catan-env", "catan-sim", "catan-web"]
+# catan-py builds via maturin against a Python toolchain; excluded so plain
+# `cargo test` never needs Python headers.
+exclude = ["catan-py"]
+resolver = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1

@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Catan training dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#101418; --card:#1a2026; --line:#2a323a; --text:#e6ebf0; --muted:#8b98a5;
+          --ok:#3fb96b; --watch:#e0a93e; --bad:#e05252; --accent:#5aa9e6; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display:flex; gap:16px; align-items:baseline; padding:14px 20px;
+           border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .sub { color:var(--muted); font-size:13px; }
+  #livedot { display:inline-block; width:8px; height:8px; border-radius:50%;
+             background:var(--muted); margin-right:6px; }
+  #livedot.live { background:var(--ok); }
+  main { padding:16px 20px; max-width:1280px; margin:0 auto; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+           gap:10px; margin-bottom:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px;
+          padding:10px 14px; }
+  .card .k { color:var(--muted); font-size:12px; }
+  .card .v { font-size:22px; font-weight:600; margin-top:2px; }
+  .card .d { color:var(--muted); font-size:11px; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr));
+           gap:12px; margin-bottom:16px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:8px;
+           padding:12px 14px; }
+  .panel h2 { font-size:13px; margin:0 0 8px; color:var(--muted); font-weight:600;
+              text-transform:uppercase; letter-spacing:.04em; }
+  canvas { width:100%; height:120px; display:block; }
+  .legend { display:flex; gap:14px; font-size:12px; color:var(--muted); margin-top:6px;
+            flex-wrap:wrap; }
+  .legend i { display:inline-block; width:10px; height:3px; margin-right:5px;
+              vertical-align:middle; }
+  #health .check { display:flex; gap:10px; padding:8px 0; border-top:1px solid var(--line);
+                   align-items:baseline; }
+  #health .check:first-of-type { border-top:none; }
+  .chip { font-size:11px; font-weight:700; padding:1px 8px; border-radius:10px;
+          flex:0 0 auto; min-width:52px; text-align:center; }
+  .chip.ok { background:rgba(63,185,107,.15); color:var(--ok); }
+  .chip.watch { background:rgba(224,169,62,.15); color:var(--watch); }
+  .chip.bad { background:rgba(224,82,82,.18); color:var(--bad); }
+  .chip.na { background:rgba(139,152,165,.12); color:var(--muted); }
+  .check .name { font-weight:600; flex:0 0 175px; }
+  .check .msg { color:var(--muted); font-size:13px; }
+  .empty { color:var(--muted); font-style:italic; padding:8px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span id="livedot"></span>Catan training dashboard</h1>
+  <span class="sub" id="runinfo">waiting for metrics…</span>
+  <span class="sub" id="lastevent"></span>
+</header>
+<main>
+  <div class="cards" id="cards"></div>
+
+  <div class="panel" id="health" style="margin-bottom:16px">
+    <h2>Health — where things may be going wrong, and why</h2>
+    <div id="checks"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel"><h2>Win rate by seat (rolling 1,000 games)</h2>
+      <canvas id="c_win"></canvas><div class="legend" id="leg_win"></div></div>
+    <div class="panel"><h2>Throughput (games/min)</h2><canvas id="c_gpm"></canvas></div>
+    <div class="panel"><h2>Avg game length (turns, rolling 500)</h2><canvas id="c_turns"></canvas></div>
+    <div class="panel"><h2>Turn-cap rate (rolling 500)</h2><canvas id="c_cap"></canvas></div>
+  </div>
+
+  <div class="grid2" id="trainpanels">
+    <div class="panel"><h2>Policy entropy</h2><canvas id="c_entropy"></canvas>
+      <div class="empty" id="e_entropy">No train events yet — appears when PPO runs.</div></div>
+    <div class="panel"><h2>Explained variance (critic quality)</h2><canvas id="c_ev"></canvas>
+      <div class="empty" id="e_ev">No train events yet.</div></div>
+    <div class="panel"><h2>PPO clip fraction</h2><canvas id="c_clip"></canvas>
+      <div class="empty" id="e_clip">No train events yet.</div></div>
+    <div class="panel"><h2>Eval win rates (fixed opponents)</h2><canvas id="c_eval"></canvas>
+      <div class="legend" id="leg_eval"></div>
+      <div class="empty" id="e_eval">No eval events yet — appears at first checkpoint eval.</div></div>
+  </div>
+</main>
+
+<script>
+"use strict";
+const COLORS = ["#5aa9e6","#e0a93e","#3fb96b","#e05252","#b07ae0","#52cbe0"];
+const S = {
+  next: 0, run: null, lastEventMs: 0,
+  games: [], // recent window for rolling stats (capped)
+  winSeries: {}, gpmSeries: [], turnSeries: [], capSeries: [],
+  trains: [], evals: {}, // evals keyed by opponent name
+  totalGames: 0, peakGpm: 0,
+  bucket: { start: 0, count: 0 }, // games/min bucketing (10s buckets)
+};
+const ROLL = 500, WINROLL = 1000, MAXPTS = 480;
+
+function push(series, pt) {
+  series.push(pt);
+  if (series.length > MAXPTS) series.splice(0, series.length - MAXPTS);
+}
+
+function rolling(arr, n) { return arr.slice(Math.max(0, arr.length - n)); }
+
+function processEvent(e) {
+  if (e.unix_ms) S.lastEventMs = Math.max(S.lastEventMs, e.unix_ms);
+  if (e.t === "run") { S.run = e; }
+  else if (e.t === "game") {
+    S.totalGames++;
+    S.games.push(e);
+    if (S.games.length > WINROLL) S.games.shift();
+    // win-rate series per seat, sampled every 25 games
+    if (S.totalGames % 25 === 0) {
+      const w = rolling(S.games, WINROLL);
+      const seats = (S.run && S.run.players) ? S.run.players.length : 4;
+      for (let s = 0; s < seats; s++) {
+        const name = seatName(s);
+        S.winSeries[name] = S.winSeries[name] || [];
+        const wins = w.filter(g => g.winner === s).length;
+        push(S.winSeries[name], { x: S.totalGames, y: wins / w.length });
+      }
+      const r5 = rolling(S.games, ROLL);
+      push(S.turnSeries, { x: S.totalGames,
+        y: r5.reduce((a, g) => a + g.turns, 0) / r5.length });
+      push(S.capSeries, { x: S.totalGames,
+        y: r5.filter(g => g.cap).length / r5.length });
+    }
+    // throughput buckets (10s)
+    const b = Math.floor((e.unix_ms || Date.now()) / 10000);
+    if (b !== S.bucket.start) {
+      if (S.bucket.count > 0) {
+        const gpm = S.bucket.count * 6;
+        S.peakGpm = Math.max(S.peakGpm, gpm);
+        push(S.gpmSeries, { x: S.totalGames, y: gpm });
+      }
+      S.bucket = { start: b, count: 0 };
+    }
+    S.bucket.count++;
+  }
+  else if (e.t === "train") { S.trains.push(e); if (S.trains.length > 2000) S.trains.shift(); }
+  else if (e.t === "eval") {
+    const k = e.vs || "opponent";
+    (S.evals[k] = S.evals[k] || []).push(e);
+  }
+}
+
+function seatName(s) {
+  const base = (S.run && S.run.players && S.run.players[s]) ? S.run.players[s] : ("seat " + s);
+  return base.replace("Player", "") + " s" + s;
+}
+
+// ------------------------------------------------------------ health rules
+function healthChecks() {
+  const checks = [];
+  const w = rolling(S.games, ROLL);
+
+  if (w.length >= 50) {
+    const cap = w.filter(g => g.cap).length / w.length;
+    checks.push(cap < 0.05
+      ? ["Games close out", "ok", `${(cap*100).toFixed(1)}% hit the 1000-turn cap — agents finish games.`]
+      : cap < 0.2
+      ? ["Games close out", "watch", `${(cap*100).toFixed(1)}% of games hit the turn cap. Rising cap-rate with shaped reward usually means VP-farming without closing (reward hacking).`]
+      : ["Games close out", "bad", `${(cap*100).toFixed(1)}% of games never finish. Agents are stalling — check reward shaping or end-turn behavior.`]);
+  } else checks.push(["Games close out", "na", "Needs ~50 finished games."]);
+
+  if (S.gpmSeries.length >= 3) {
+    const cur = S.gpmSeries[S.gpmSeries.length - 1].y;
+    checks.push(cur > S.peakGpm * 0.5
+      ? ["Throughput", "ok", `${Math.round(cur)} games/min (peak ${Math.round(S.peakGpm)}).`]
+      : ["Throughput", "watch", `${Math.round(cur)} games/min — under half of peak ${Math.round(S.peakGpm)}. Thermal throttling or CPU contention with training threads.`]);
+  } else checks.push(["Throughput", "na", "Collecting…"]);
+
+  if (S.run && S.run.players) {
+    const kinds = new Set(S.run.players);
+    if (kinds.size > 1 && w.length >= 200) {
+      const share = {};
+      S.run.players.forEach((p, s) => {
+        share[p] = (share[p] || 0) + w.filter(g => g.winner === s).length;
+      });
+      const h = share["HeuristicPlayer"] || 0, r = share["RandomPlayer"] || 0;
+      if (h + r > 0) checks.push(h > r
+        ? ["Strategy sanity", "ok", "Heuristic seats out-win random seats, as they must."]
+        : ["Strategy sanity", "bad", "Random seats are beating heuristic seats — something is wrong with the run setup or the engine."]);
+    }
+  }
+
+  const tr = S.trains;
+  if (tr.length >= 10) {
+    const ent = tr[tr.length-1].entropy, early = Math.max(...tr.slice(0, 20).map(t => t.entropy));
+    checks.push(ent < early * 0.25 && tr.length < 200
+      ? ["Entropy", "bad", `Entropy collapsed early (${ent.toFixed(2)} from ${early.toFixed(2)}): premature convergence. Raise entropy coefficient or lower learning rate; restore a snapshot.`]
+      : ent > early * 0.95 && tr.length > 300
+      ? ["Entropy", "watch", `Entropy flat at ${ent.toFixed(2)} — little is being learned. Check learning rate and that rewards/masks flow.`]
+      : ["Entropy", "ok", `${ent.toFixed(2)}, declining gradually — healthy exploration decay.`]);
+
+    const ev = tr[tr.length-1].explained_variance;
+    checks.push(ev < 0
+      ? ["Critic (explained var)", "bad", `${ev.toFixed(2)} — worse than predicting the mean. That's a bug, stop the run.`]
+      : ev < 0.05 && tr.length > 50
+      ? ["Critic (explained var)", "bad", `${ev.toFixed(2)} — the critic can't predict outcomes. Check the observation encoder for missing information.`]
+      : ev < 0.2
+      ? ["Critic (explained var)", "watch", `${ev.toFixed(2)} — critic still weakly calibrated.`]
+      : ["Critic (explained var)", "ok", `${ev.toFixed(2)} — critic sees the game (1.0 impossible with dice).`]);
+
+    const cf = tr[tr.length-1].clip_frac;
+    checks.push(cf > 0.5
+      ? ["PPO clip fraction", "bad", `${cf.toFixed(2)} — most updates hit the brake: learning rate too high or data too stale.`]
+      : cf < 0.05
+      ? ["PPO clip fraction", "watch", `${cf.toFixed(2)} — steps very timid; learning rate may be too low.`]
+      : ["PPO clip fraction", "ok", `${cf.toFixed(2)} — inside the healthy 0.05–0.35 band.`]);
+  } else {
+    checks.push(["Entropy", "na", "Waiting for train events."]);
+    checks.push(["Critic (explained var)", "na", "Waiting for train events."]);
+    checks.push(["PPO clip fraction", "na", "Waiting for train events."]);
+  }
+
+  for (const [vs, evs] of Object.entries(S.evals)) {
+    if (evs.length >= 3) {
+      const last = evs[evs.length-1].win_rate, prev = evs[evs.length-3].win_rate;
+      checks.push(last > prev + 0.01
+        ? [`Eval vs ${vs}`, "ok", `${(last*100).toFixed(1)}% and rising.`]
+        : last < prev - 0.03
+        ? [`Eval vs ${vs}`, "watch", `${(last*100).toFixed(1)}%, falling from ${(prev*100).toFixed(1)}% — possible forgetting/strategy cycling. Train against the snapshot pool.`]
+        : [`Eval vs ${vs}`, "ok", `${(last*100).toFixed(1)}%, holding.`]);
+    }
+  }
+  return checks;
+}
+
+// ------------------------------------------------------------ rendering
+function drawSeries(canvasId, seriesList, opts = {}) {
+  const c = document.getElementById(canvasId);
+  const dpr = window.devicePixelRatio || 1;
+  const W = c.clientWidth, H = c.clientHeight;
+  c.width = W * dpr; c.height = H * dpr;
+  const ctx = c.getContext("2d");
+  ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
+  const all = seriesList.flatMap(s => s.pts);
+  if (all.length < 2) return;
+  let ymin = opts.ymin !== undefined ? opts.ymin : Math.min(...all.map(p => p.y));
+  let ymax = opts.ymax !== undefined ? opts.ymax : Math.max(...all.map(p => p.y));
+  if (ymax - ymin < 1e-9) { ymax = ymin + 1; }
+  const xmin = Math.min(...all.map(p => p.x)), xmax = Math.max(...all.map(p => p.x));
+  const px = x => 4 + (W - 8) * (x - xmin) / Math.max(1, xmax - xmin);
+  const py = y => H - 6 - (H - 16) * (y - ymin) / (ymax - ymin);
+  ctx.strokeStyle = "#2a323a"; ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+  seriesList.forEach((s, i) => {
+    ctx.strokeStyle = s.color || COLORS[i % COLORS.length];
+    ctx.lineWidth = 1.6; ctx.beginPath();
+    s.pts.forEach((p, j) => j ? ctx.lineTo(px(p.x), py(p.y)) : ctx.moveTo(px(p.x), py(p.y)));
+    ctx.stroke();
+  });
+  ctx.fillStyle = "#8b98a5"; ctx.font = "10px sans-serif";
+  ctx.fillText(fmt(ymax), 6, 12); ctx.fillText(fmt(ymin), 6, H - 8);
+  function fmt(v) { return Math.abs(v) < 10 ? v.toFixed(2) : Math.round(v).toLocaleString(); }
+}
+
+function card(k, v, d) {
+  return `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d || ""}</div></div>`;
+}
+
+function render() {
+  const w = rolling(S.games, ROLL);
+  const avgTurns = w.length ? (w.reduce((a, g) => a + g.turns, 0) / w.length) : 0;
+  const cap = w.length ? w.filter(g => g.cap).length / w.length : 0;
+  const gpm = S.gpmSeries.length ? S.gpmSeries[S.gpmSeries.length-1].y : 0;
+  const cards = [
+    card("Games finished", S.totalGames.toLocaleString(), S.run ? `target ${S.run.games?.toLocaleString?.() ?? "?"}` : ""),
+    card("Throughput", Math.round(gpm).toLocaleString() + "/min", `peak ${Math.round(S.peakGpm).toLocaleString()}`),
+    card("Avg turns", avgTurns ? avgTurns.toFixed(0) : "–", `rolling ${Math.min(w.length, ROLL)}`),
+    card("Turn-cap rate", (cap*100).toFixed(1) + "%", "unfinished games"),
+  ];
+  if (S.trains.length) {
+    const t = S.trains[S.trains.length-1];
+    cards.push(card("Train step", (t.step ?? 0).toLocaleString(), `${t.sps ? Math.round(t.sps).toLocaleString() + " steps/s" : ""}`));
+  }
+  document.getElementById("cards").innerHTML = cards.join("");
+
+  document.getElementById("checks").innerHTML = healthChecks().map(([name, lvl, msg]) =>
+    `<div class="check"><span class="chip ${lvl}">${lvl.toUpperCase()}</span>
+     <span class="name">${name}</span><span class="msg">${msg}</span></div>`).join("");
+
+  const winList = Object.entries(S.winSeries).map(([name, pts], i) =>
+    ({ pts, color: COLORS[i % COLORS.length], name }));
+  drawSeries("c_win", winList, { ymin: 0, ymax: Math.max(0.5, ...winList.flatMap(s => s.pts.map(p => p.y))) });
+  document.getElementById("leg_win").innerHTML = winList.map((s, i) =>
+    `<span><i style="background:${s.color}"></i>${s.name}</span>`).join("");
+  drawSeries("c_gpm", [{ pts: S.gpmSeries }], { ymin: 0 });
+  drawSeries("c_turns", [{ pts: S.turnSeries }]);
+  drawSeries("c_cap", [{ pts: S.capSeries }], { ymin: 0, ymax: Math.max(0.25, ...S.capSeries.map(p => p.y)) });
+
+  if (S.trains.length) {
+    ["e_entropy","e_ev","e_clip"].forEach(id => document.getElementById(id).style.display = "none");
+    const t = S.trains;
+    drawSeries("c_entropy", [{ pts: t.map(x => ({ x: x.step, y: x.entropy })) }]);
+    drawSeries("c_ev", [{ pts: t.map(x => ({ x: x.step, y: x.explained_variance })) }], { ymin: -0.2, ymax: 1 });
+    drawSeries("c_clip", [{ pts: t.map(x => ({ x: x.step, y: x.clip_frac })) }], { ymin: 0, ymax: 0.6 });
+  }
+  const evalKeys = Object.keys(S.evals);
+  if (evalKeys.length) {
+    document.getElementById("e_eval").style.display = "none";
+    const list = evalKeys.map((k, i) => ({
+      pts: S.evals[k].map(e => ({ x: e.step ?? S.evals[k].indexOf(e), y: e.win_rate })),
+      color: COLORS[i % COLORS.length], name: k }));
+    drawSeries("c_eval", list, { ymin: 0, ymax: 1 });
+    document.getElementById("leg_eval").innerHTML = list.map(s =>
+      `<span><i style="background:${s.color}"></i>vs ${s.name}</span>`).join("");
+  }
+
+  const dot = document.getElementById("livedot");
+  const fresh = S.lastEventMs && (Date.now() - S.lastEventMs < 15000);
+  dot.className = fresh ? "live" : "";
+  document.getElementById("lastevent").textContent = S.lastEventMs
+    ? `last event ${Math.max(0, Math.round((Date.now() - S.lastEventMs)/1000))}s ago` : "";
+  if (S.run) {
+    document.getElementById("runinfo").textContent =
+      `${S.run.source || "run"} — ${(S.run.players || []).join(", ")}`;
+  }
+}
+
+async function poll() {
+  try {
+    const r = await fetch(`/rustapi/metrics?since=${S.next}`);
+    const data = await r.json();
+    (data.events || []).forEach(processEvent);
+    S.next = data.next;
+    render();
+    // catch up fast if behind, else breathe
+    setTimeout(poll, data.more ? 50 : 1500);
+  } catch (e) {
+    document.getElementById("runinfo").textContent = "metrics endpoint unreachable — retrying";
+    setTimeout(poll, 3000);
+  }
+}
+poll();
+</script>
+</body>
+</html>

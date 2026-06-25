@@ -19,3 +19,7 @@ wandb/
 !checkpoints/**/plots/**
 !checkpoints/**/final_ladder.json
 !checkpoints/**/analysis_*.json
+
+# Rust build output
+rust/target/
+rust/*/target/

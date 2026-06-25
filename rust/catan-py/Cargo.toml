@@ -1,0 +1,18 @@
+[package]
+name = "catan-py"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "catan_py"
+crate-type = ["cdylib"]
+
+[dependencies]
+catan-core = { path = "../catan-core" }
+catan-env = { path = "../catan-env" }
+pyo3 = { version = "0.22", features = ["extension-module"] }
+numpy = "0.22"
+
+[profile.release]
+lto = true
+codegen-units = 1

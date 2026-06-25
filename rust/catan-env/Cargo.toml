@@ -1,0 +1,17 @@
+[package]
+name = "catan-env"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rand = { version = "0.8", features = ["small_rng"] }
+catan-core = { path = "../catan-core" }
+rayon = "1"
+
+[dev-dependencies]
+rand = { version = "0.8", features = ["small_rng"] }
+criterion = "0.5"
+
+[[bench]]
+name = "env"
+harness = false
