@@ -1,0 +1,93 @@
+# Phase 8 — PPO from scratch with the CROSS-DIMENSIONAL (Xdim) trunk.
+#
+# Architecture: catan_rl/features/xdim.py — board<->scalar information exchange via
+# inflation/deflation at every block (Gendre & Kaneko 2020), vs HexFormer's
+# concat-at-the-end. The board features can be modulated by player state (hand,
+# phase, robber, opponent achievements) and the global vector is board-aware.
+#
+# Hypers/curriculum = the from-scratch setup that worked best (phase6 s2/l2):
+# fixed competent curriculum {weighted 0.3, value 0.2, self 0.5} (weighted bootstrap
+# + real value target + self-play, no eps-collapse), ent 0.02->0.01, clip 0.1, MMD
+# proximal 0.02, lr 1e-4 + 1M warmup, lean reward. Honest expectation: PPO likely
+# still caps (the wall was exploration/compute, not capacity) — but this tests
+# whether the richer trunk lifts the ceiling, and the trunk's bigger payoff is a
+# better BC value/evaluator for the search path (next step).
+seed: 0
+run_name: xdim
+
+env:
+  map_type: BASE
+  representation: mixed
+  enable_maritime_trade: true
+
+train:
+  total_timesteps: 40_000_000
+  n_envs: 6
+  device: mps
+  arch: boardcnn
+  policy: spatial
+  trunk: xdim
+
+  opponent_cfg:
+    sampler: mixed_with_self
+    mix: {weighted: 0.3, value: 0.2, self: 0.5}
+    self_fallback: weighted
+    best_past_self: true
+    snapshot_every_steps: 1_000_000
+
+  reward:
+    enabled: true
+    anneal_start_step: -1
+    anneal_end_step: -1
+    win_reward: 500.0
+    loss_reward: 0.0
+    vp_coef: 5.0
+    city_bonus: 2.5
+    settlement_bonus: 0.0
+    dev_play_reward: 2.0
+    discard_penalty: -0.3
+    initial_placement_pip: 0.0
+    initial_placement_diversity: 0.0
+    placement_coverage: {}
+    per_turn_penalty: 0.0
+    robber_target_opponent: 1.0
+    robber_blocks_high_pip: 0.0
+    road_cost: 0.0
+    longest_road_delta: 0.0
+    maritime_penalty: 0.0
+    robber_block_opp_pip: 0.0
+    robber_block_self_pip: 0.0
+    robber_steal: 0.0
+
+  ppo:
+    gamma: 0.999
+    gae_lambda: 0.95
+    n_steps: 2048
+    batch_size: 1024
+    n_epochs: 4
+    learning_rate: 1.0e-4
+    warmup_steps: 1_000_000
+    clip_range: 0.1
+    ent_coef: 0.02
+    ent_coef_final: 0.01
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+    kl_coef: 0.0
+    kl_target: 0.0
+    magnet_mode: fixed
+    mmd_kl_coef: 0.02
+  checkpoint_every: 5_000_000
+
+eval:
+  callback_opponents: [weighted, value, alphabeta1, alphabeta2]
+  callback_games: 20
+  callback_every: 500_000
+  run_final_ladder: true
+  final_opponents: [random, weighted, value, alphabeta1, alphabeta2]
+  final_games: 500
+  final_modes: ["1v1"]
+
+wandb:
+  project: catan-rl
+  mode: online
+  entity: null
