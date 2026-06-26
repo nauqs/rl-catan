@@ -14,7 +14,7 @@ use catan_env::{
 use numpy::{PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray1};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyDict};
 
 fn parse_seats(seats: Option<Vec<String>>, num_players: usize) -> PyResult<[SeatKind; 4]> {
     let mut kinds = [SeatKind::Policy; 4];
@@ -31,9 +31,11 @@ fn parse_seats(seats: Option<Vec<String>>, num_players: usize) -> PyResult<[Seat
                 "random" => SeatKind::RandomBot,
                 "rollout" => SeatKind::RolloutBot,
                 "heuristic_v2" => SeatKind::HeuristicV2Bot,
+                "value" => SeatKind::ValueBot,
+                "value_cata" => SeatKind::ValueCataBot,
                 other => {
                     return Err(PyValueError::new_err(format!(
-                        "seat kind must be policy/heuristic/random/rollout, got '{other}'"
+                        "seat kind must be policy/heuristic/random/rollout/heuristic_v2/value, got '{other}'"
                     )))
                 }
             };
@@ -280,10 +282,28 @@ impl Env {
     }
 }
 
+/// Static board adjacency (the standard 19-hex base board), in the engine's
+/// own vertex(0..53)/edge(0..71)/tile(0..18) indexing — the same indices the
+/// obs tokens and action ids use. `-1` entries are padding (a vertex on the
+/// rim has fewer than 3 neighbors/tiles/edges). Used to build graph-masked
+/// attention and the Catanatron adapter's coordinate maps.
+#[pyfunction]
+fn topology(py: Python<'_>) -> PyResult<Py<PyDict>> {
+    let t = catan_core::board::topology();
+    let d = PyDict::new_bound(py);
+    d.set_item("tile_vertices", t.tile_vertices.iter().map(|a| a.to_vec()).collect::<Vec<_>>())?;
+    d.set_item("vertex_tiles", t.vertex_tiles.iter().map(|a| a.to_vec()).collect::<Vec<_>>())?;
+    d.set_item("vertex_neighbors", t.vertex_neighbors.iter().map(|a| a.to_vec()).collect::<Vec<_>>())?;
+    d.set_item("edge_vertices", t.edge_vertices.iter().map(|a| a.to_vec()).collect::<Vec<_>>())?;
+    d.set_item("vertex_edges", t.vertex_edges.iter().map(|a| a.to_vec()).collect::<Vec<_>>())?;
+    Ok(d.into())
+}
+
 #[pymodule]
 fn catan_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<VecEnv>()?;
     m.add_class::<Env>()?;
+    m.add_function(wrap_pyfunction!(topology, m)?)?;
     m.add("NUM_ACTIONS", NUM_ACTIONS)?;
     m.add("OBS_DIM", OBS_DIM)?;
     m.add("CODEC_VERSION", CODEC_VERSION)?;

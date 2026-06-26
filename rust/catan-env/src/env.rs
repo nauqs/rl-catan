@@ -15,6 +15,7 @@
 //! - Truncation at `max_turns` ends the episode with no winner and no
 //!   terminal bonus (shaped accruals still flush).
 
+use catan_core::eval::GreedyValuePlayer;
 use catan_core::game::{Action, CatanGame};
 use catan_core::players::{HeuristicPlayer, Player, RandomPlayer, RolloutBot};
 use catan_core::replay::GameRecord;
@@ -57,6 +58,16 @@ pub enum SeatKind {
     /// Flat Monte Carlo search (strong but slow — eval anchor, not a
     /// training opponent at scale).
     RolloutBot,
+    /// 1-ply greedy lookahead over the linear position evaluation
+    /// (catan_core::eval). Same family as Catanatron's ValueFunctionPlayer:
+    /// clone-and-score every legal action, take the argmax. A strong,
+    /// fast value-style sparring/eval opponent.
+    ValueBot,
+    /// Same 1-ply value player but with the UN-evolved Catanatron-port weights
+    /// (ValueParams::catanatron()). Target-faithful sparring: Catanatron's AB2
+    /// IS this evaluation at depth 2, whereas the GA-evolved params drifted
+    /// toward exploiting engine heuristics (vpool transfer failure, Jul 8).
+    ValueCataBot,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -88,6 +99,7 @@ enum Bot {
     Heuristic(HeuristicPlayer),
     Random(RandomPlayer),
     Rollout(Box<RolloutBot>),
+    Value(GreedyValuePlayer),
 }
 
 impl Bot {
@@ -96,6 +108,7 @@ impl Bot {
             Bot::Heuristic(p) => p.choose_action(game, valid),
             Bot::Random(p) => p.choose_action(game, valid),
             Bot::Rollout(p) => p.choose_action(game, valid),
+            Bot::Value(p) => p.choose_action(game, valid),
         }
     }
 }
@@ -175,6 +188,14 @@ impl CatanEnv {
                 SeatKind::RolloutBot => {
                     Some(Bot::Rollout(Box::new(RolloutBot::new(bot_seed, 12, 40))))
                 }
+                SeatKind::ValueBot => Some(Bot::Value(GreedyValuePlayer::with_params(
+                    bot_seed,
+                    catan_core::eval::ValueParams::evolved(),
+                ))),
+                SeatKind::ValueCataBot => Some(Bot::Value(GreedyValuePlayer::with_params(
+                    bot_seed,
+                    catan_core::eval::ValueParams::catanatron(),
+                ))),
             };
         }
         if self.recording.is_some() {

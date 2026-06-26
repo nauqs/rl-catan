@@ -3,6 +3,7 @@
 //! faces the SAME game seeds (common random numbers), so fitness gaps
 //! reflect skill, not board luck. Output: a Heuristic-v2 candidate.
 
+use catan_core::eval::{GreedyValuePlayer, ValueParams, NUM_VALUE_PARAMS};
 use catan_core::game::CatanGame;
 use catan_core::players::{play_game, HeuristicParams, HeuristicPlayer, Player};
 use rand::rngs::SmallRng;
@@ -118,4 +119,107 @@ pub fn evolve(games_per_eval: u64, seed: u64) {
     );
     std::fs::write("heuristic_v2_candidate.json", &json).ok();
     println!("written to heuristic_v2_candidate.json");
+}
+
+// --------------------------------------------------------------------------
+// Value-bot GA: evolve GreedyValuePlayer's ValueParams (17 genes), seeded from
+// the Catanatron-weights port, fitness = win rate vs 3x Heuristic-v1 (CRN).
+// --------------------------------------------------------------------------
+
+fn fitness_value(params: ValueParams, games: u64, seed_base: u64) -> f32 {
+    let wins: u32 = (0..games)
+        .map(|g| {
+            let game_seed = seed_base.wrapping_add(g.wrapping_mul(0x9E3779B97F4A7C15));
+            let my_seat = (g % 4) as usize;
+            let mut game = CatanGame::new_with_target(4, game_seed, 7);
+            game.record_history = false;
+            let mut players: Vec<Box<dyn Player>> = (0..4)
+                .map(|s| -> Box<dyn Player> {
+                    if s == my_seat {
+                        Box::new(GreedyValuePlayer::with_params(game_seed ^ 1, params))
+                    } else {
+                        Box::new(HeuristicPlayer::new(game_seed ^ (s as u64 + 2)))
+                    }
+                })
+                .collect();
+            u32::from(play_game(&mut game, &mut players) == my_seat as i8)
+        })
+        .sum();
+    wins as f32 / games as f32
+}
+
+fn mutate_value(params: ValueParams, rng: &mut SmallRng, sigma: f32) -> ValueParams {
+    let scale = ValueParams::catanatron().to_array(); // per-gene natural magnitude
+    let mut a = params.to_array();
+    for (i, v) in a.iter_mut().enumerate() {
+        let s = scale[i].abs().max(0.05);
+        let noise: f32 = (0..4).map(|_| rng.gen::<f32>()).sum::<f32>() / 2.0 - 1.0;
+        *v = (*v + noise * sigma * s).max(0.0);
+    }
+    ValueParams::from_array(a)
+}
+
+fn crossover_value(a: ValueParams, b: ValueParams, rng: &mut SmallRng) -> ValueParams {
+    let (aa, ba) = (a.to_array(), b.to_array());
+    let mut child = [0f32; NUM_VALUE_PARAMS];
+    for i in 0..NUM_VALUE_PARAMS {
+        child[i] = if rng.gen::<bool>() { aa[i] } else { ba[i] };
+    }
+    ValueParams::from_array(child)
+}
+
+pub fn evolve_value(games_per_eval: u64, seed: u64) {
+    let mut rng = SmallRng::seed_from_u64(seed);
+    // Individual 0 is the Catanatron port itself: evolution must beat it.
+    let mut population: Vec<ValueParams> = vec![ValueParams::catanatron()];
+    while population.len() < POP {
+        population.push(mutate_value(ValueParams::catanatron(), &mut rng, 0.6));
+    }
+
+    for gen in 0..GENS {
+        let seed_base = seed + gen as u64 * 1_000_003;
+        let mut scored: Vec<(f32, ValueParams)> = population
+            .par_iter()
+            .map(|&p| (fitness_value(p, games_per_eval, seed_base), p))
+            .collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        let best = scored[0];
+        let mean: f32 = scored.iter().map(|s| s.0).sum::<f32>() / scored.len() as f32;
+        println!("gen {gen:2}: best {:.1}% | mean {:.1}%", best.0 * 100.0, mean * 100.0);
+
+        let sigma = 0.4 * (1.0 - gen as f32 / GENS as f32) + 0.08;
+        let elites: Vec<ValueParams> = scored.iter().take(ELITE).map(|s| s.1).collect();
+        population = elites.clone();
+        while population.len() < POP {
+            let a = elites[rng.gen_range(0..ELITE)];
+            let b = scored[rng.gen_range(0..POP / 2)].1;
+            population.push(mutate_value(crossover_value(a, b, &mut rng), &mut rng, sigma));
+        }
+    }
+
+    let champion = {
+        let seed_base = seed + 777_777;
+        let mut scored: Vec<(f32, ValueParams)> = population
+            .par_iter()
+            .map(|&p| (fitness_value(p, games_per_eval, seed_base), p))
+            .collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        scored[0].1
+    };
+    let n = games_per_eval * 6;
+    let holdout_champ = fitness_value(champion, n, seed + 31_337);
+    let holdout_port = fitness_value(ValueParams::catanatron(), n, seed + 31_337);
+    let holdout_default = fitness_value(ValueParams::default(), n, seed + 31_337);
+    println!("\nholdout ({n} fresh games, seat-rotated, vs 3x Heuristic-v1, fair share 25%):");
+    println!("  engine default : {:.1}%", holdout_default * 100.0);
+    println!("  catanatron port: {:.1}%", holdout_port * 100.0);
+    println!("  evolved        : {:.1}%", holdout_champ * 100.0);
+    println!("  params         : {:?}", champion.to_array());
+    let json = format!(
+        "{{\"value_params\":{:?},\"holdout_win_rate\":{}}}",
+        champion.to_array().to_vec(),
+        holdout_champ
+    );
+    std::fs::write("value_evolved_candidate.json", &json).ok();
+    println!("written to value_evolved_candidate.json");
 }

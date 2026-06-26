@@ -77,6 +77,43 @@ impl Default for ValueParams {
 }
 
 impl ValueParams {
+    /// Port of Catanatron's `ValueFunctionPlayer` DEFAULT_WEIGHTS, mapped onto
+    /// this engine's features and rescaled from Catanatron's lexicographic
+    /// magnitudes (public_vps 3e14 ≫ production 1e8 ≫ reachable 1e4 ≫
+    /// buildable 1e3 ≫ hand_synergy 1e2 ≫ longest_road/army 10 ≫ hand 1) to a
+    /// sane weighted sum. VP dominates and already includes the longest-road /
+    /// largest-army awards (via calculate_victory_points), so `road_len`/`knight`
+    /// are small progress nudges — exactly as in Catanatron. Used as the GA seed.
+    pub fn catanatron() -> Self {
+        ValueParams {
+            vp: 100.0,
+            income: [3.0, 3.0, 3.0, 3.0, 3.0], // Catanatron "production" is flat across resources
+            diversity: 1.0,                    // production variety bonus
+            port_any: 0.5,
+            port_matched: 1.5,
+            hand: 0.2,                         // hand_resources (1)
+            hand_excess: 0.02,
+            overflow: 1.5,                     // discard_penalty (-5)
+            dev_card: 0.5,                     // hand_devs (10)
+            knight: 0.5,                       // army_size (10.1) — award itself is in VP
+            road_len: 0.3,                     // longest_road (10) — award itself is in VP
+            expansion: 4.0,                    // reachable_production_1 (1e4) + buildable_nodes (1e3)
+            opp_lambda: 0.8,                   // enemy_production (-1e8, equal to production)
+        }
+    }
+
+    /// The GA champion: [[catanatron]] port → 12-gen genetic search (fitness =
+    /// win rate vs 3× Heuristic-v1, CRN), holdout 73.2% over 6000 fresh games
+    /// (port 70.8%, engine default 55.4%). Evolution rediscovered ore/wheat as
+    /// the highest-value resources. This is the params the `value` seat uses.
+    pub fn evolved() -> Self {
+        ValueParams::from_array([
+            78.69034, 3.5318837, 2.8625329, 2.137351, 2.4898794, 4.1222677,
+            0.92646396, 0.3210154, 0.47668123, 0.20326401, 0.037221346, 1.7669824,
+            0.52596474, 0.6722378, 0.41916305, 3.9878888, 0.9098413,
+        ])
+    }
+
     pub fn to_array(self) -> [f32; NUM_VALUE_PARAMS] {
         [
             self.vp,

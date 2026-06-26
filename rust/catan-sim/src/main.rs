@@ -136,6 +136,10 @@ fn parse_args() -> Config {
                 evolve::evolve(games as u64, seed);
                 std::process::exit(0);
             }
+            "--evolve-value" => {
+                evolve::evolve_value(games as u64, seed);
+                std::process::exit(0);
+            }
             "--record-golden" => {
                 i += 1;
                 let dir = std::path::PathBuf::from(&args[i]);
@@ -274,7 +278,10 @@ fn make_players(
                     alpha_cfg.1,
                     alpha_cfg.2,
                 )),
-                Strategy::GreedyValue => Box::new(GreedyValuePlayer::new(player_seed)),
+                Strategy::GreedyValue => Box::new(GreedyValuePlayer::with_params(
+                    player_seed,
+                    catan_core::eval::ValueParams::evolved(),
+                )),
             }
         })
         .collect()
