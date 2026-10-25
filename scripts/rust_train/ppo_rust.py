@@ -1,4 +1,4 @@
-"""Masked PPO self-play on the Catan VecEnv (Phase 10 trainer).
+"""Masked PPO self-play on the Rust Catan VecEnv.
 
 One policy plays all seats (seat-relative obs). Trajectories are stitched
 per (env, seat): a transition completes when that seat next acts — at that
@@ -8,15 +8,15 @@ episode end via terminal_rewards.
 ATTRIBUTION: the PPO/self-play loop and PolicyValueNet below are adapted from
 Eli6th/catan-rl (MIT). The Rust engine (catan_py) is vendored under rust/ with
 UPSTREAM_LICENSE + VENDORED_FROM.md. This file adds: Weights & Biases logging,
-a step-based budget, and our project-standard run conventions so the Rust-engine
-runs land in the same wandb project as Phases 1-9. See LOGBOOK.md "Phase 10".
+a step-based budget, transformer policies (nets.py), opponent seat pools and a
+self-play league.
 
 Stage-1 smoke run (first-to-7, perfect info, shaped reward):
     python scripts/rust_train/ppo_rust.py --name smoke1 --minutes 10 \
         --victory-target 7 --vp-delta 0.05
 
-Long run with wandb (Phase 10):
-    python scripts/rust_train/ppo_rust.py --name phase10-rust \
+Long run with wandb:
+    python scripts/rust_train/ppo_rust.py --name rust-mlp \
         --steps 200_000_000 --num-envs 256 \
         --train-seats policy,heuristic,policy,heuristic \
         --victory-target 7 --vp-delta 0.05 --wandb
