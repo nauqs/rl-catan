@@ -1,4 +1,4 @@
-# Phase 5 — BC warm start + RL with a KL-to-BC anchor (run #1 of the
+# BC warm start + RL with a KL-to-BC anchor (part of the
 # anchor / ExIt / combined sequence).
 #
 # Why: three BC->PPO runs (v1 naked, v2 critic-warmup, v3 lean) all collapsed the

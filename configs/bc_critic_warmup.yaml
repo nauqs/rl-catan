@@ -1,4 +1,4 @@
-# Phase 5 — BC warm start + RL fine-tune.
+# BC warm start + RL fine-tune.
 #
 # Empirical basis (2026-06-10): a 6.5-min behavior-clone of ValueFunctionPlayer
 # (2k games) beat value 27% / weighted 97% — vs 0-6% for every multi-day pure-RL

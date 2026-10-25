@@ -1,9 +1,9 @@
-# Phase 2b — same as phase2a.yaml except `train.policy: factorized`.
+# Same as curriculum.yaml except `train.policy: factorized`.
 # This is a pure architectural ablation: identical training schedule + reward
 # shaping, but the policy uses Charlesworth-style type+parameter heads instead
 # of one flat Linear(features -> 332) head.
 seed: 0
-run_name: phase2b-factorized
+run_name: factorized-policy
 
 env:
   map_type: BASE
@@ -14,7 +14,7 @@ train:
   n_envs: 8
   device: mps
   arch: boardcnn
-  policy: factorized               # <-- the one thing that changes vs phase2a
+  policy: factorized               # <-- the one thing that changes vs curriculum.yaml
 
   opponent_cfg:
     sampler: scheduled

@@ -1,18 +1,18 @@
-# Phase 2a — modular improvements over phase1-baseline-v2 with curriculum schedule.
+# Modular reward + scheduled opponent curriculum on top of the PPO baseline.
 #
 # Three modules ON by default:
 #   1. Refined reward shaping (per-event retuned + new terms + annealing)
 #   2. *Scheduled* opponent curriculum that ramps from weak fixed bots
 #      at start -> heavy self-play + harder bots by end
-#   3. Architecture: still BoardCNN (Phase 1 chose well at this size)
+#   3. Architecture: still BoardCNN (the baseline choice holds at this size)
 #
-# Targets (vs Phase 1):
+# Targets (vs the PPO baseline):
 #   winrate vs Value:  9% -> >=20%
 #   winrate vs VP (new):  unknown -> measure
 #   winrate vs AB2:    7% -> >=15%
 #   cities/game vs Value:  0.5 -> >=1.0
 seed: 0
-run_name: phase2a-baseline
+run_name: curriculum
 
 env:
   map_type: BASE
@@ -23,7 +23,7 @@ train:
   n_envs: 8
   device: mps
   arch: boardcnn
-  policy: flat                     # Phase 2a stays flat; Phase 2b flips to factorized
+  policy: flat                     # flat here; factorized_policy.yaml flips it
 
   # Module 2 — scheduled opponent curriculum.
   # Start with mostly weak bots (random/weighted/vp); ramp self to majority by end.

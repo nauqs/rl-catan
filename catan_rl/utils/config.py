@@ -98,7 +98,7 @@ class RewardConfig(BaseModel):
     """Per-term coefficients for ShapedRewardWrapper.
 
     Setting any coefficient to 0 disables that term cleanly. Phase-1 defaults
-    match Charlesworth; Phase-2a overrides them via configs/phase2a.yaml.
+    match Charlesworth; Phase-2a overrides them via configs/curriculum.yaml.
     """
     enabled: bool = True
     anneal_start_step: int = -1     # -1 disables annealing; else linear taper
@@ -194,7 +194,7 @@ class TrainConfig(BaseModel):
 
 class BaseConfig(BaseModel):
     seed: int = 0
-    run_name: str = "phase1-baseline"
+    run_name: str = "ppo-baseline"
     env: EnvConfig = Field(default_factory=EnvConfig)
     train: TrainConfig = Field(default_factory=TrainConfig)
     eval: EvalConfig = Field(default_factory=EvalConfig)

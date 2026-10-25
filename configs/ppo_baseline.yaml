@@ -1,5 +1,5 @@
 seed: 0
-run_name: phase1-baseline
+run_name: ppo-baseline
 
 env:
   map_type: BASE

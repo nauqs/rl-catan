@@ -1,4 +1,4 @@
-# Default Phase 0 / Phase 1 config. Anything not listed falls back to BaseConfig defaults.
+# Default config. Anything not listed falls back to BaseConfig defaults.
 seed: 0
 
 env:

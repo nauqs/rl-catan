@@ -1,4 +1,4 @@
-# Phase 6 — Run 2: LONG scratch self-play PPO with a FIXED competent curriculum.
+# LONG scratch self-play PPO with a FIXED competent curriculum.
 #
 # s1/s2 (scratch) failed on the CURRICULUM, not PPO: 50% self + 50% epsilon-value
 # collapsed because epsilon ratcheted to ~1.0 (value playing random) once the agent
@@ -9,7 +9,7 @@
 # Run 2 fixes both: keep the working entropy (0.02->0.01) AND replace eps-value with a
 # STABLE competent mix that can't collapse:
 #   mixed_with_self {weighted 0.3, value 0.2, self 0.5}
-#   - weighted (0.3): from-scratch BOOTSTRAP (Phase-1's proven sweet spot; random is too
+#   - weighted (0.3): from-scratch BOOTSTRAP (the baseline's proven sweet spot; random is too
 #     weak, real value too hard early).
 #   - value (0.2): constant exposure to the real EVAL TARGET (no eps weakening).
 #   - self (0.5): the self-play engine for climbing past the teacher.

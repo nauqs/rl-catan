@@ -1,6 +1,6 @@
-# Phase 3 — spatial pointer head + maritime (bank/port) trade re-enabled.
+# spatial pointer head + maritime (bank/port) trade re-enabled.
 #
-# Two changes vs phase2b:
+# Two changes vs factorized_policy.yaml:
 #   1. policy: spatial — action logits for board locations (settlement/city/road/
 #      robber) read the *local* conv features at those locations via HexEncoder,
 #      instead of a position-blind pooled vector. SETTLEMENT and CITY get
@@ -13,14 +13,14 @@
 # then a fast ramp (1M->2M) to self=0.5, held for the remainder. The self
 # snapshot is saved at step 0 and refreshed every 1M (single overwritten file,
 # no disk cost), so the self-opponent tracks the improving policy rather than
-# staying a near-random step-0 copy. Reward/annealing/PPO hypers copy phase2b.
+# staying a near-random step-0 copy. Reward/annealing/PPO hypers copy factorized_policy.yaml.
 #
 # Device/budget finalized from `scripts/profile_device.py --policy spatial`:
 # MPS 266 sps vs CPU 90 sps (~3x) -> device: mps. Resource footprint kept
 # deliberately comfortable for a shared local machine (M3 Pro, 11 cores):
 # n_envs=6 leaves ~5 cores free; batch_size=1024 is fast on MPS at trivial memory.
 seed: 0
-run_name: phase3-spatial
+run_name: spatial-policy
 
 env:
   map_type: BASE

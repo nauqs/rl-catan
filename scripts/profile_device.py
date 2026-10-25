@@ -1,7 +1,7 @@
 """Compare PPO training throughput (SPS) on CPU vs MPS.
 
 Runs `n_steps` of `model.learn()` on each backend (with W&B disabled), reports
-mean fps, and prints the recommended `train.device` for `configs/phase1.yaml`.
+mean fps, and prints the recommended `train.device` for `configs/ppo_baseline.yaml`.
 """
 from __future__ import annotations
 

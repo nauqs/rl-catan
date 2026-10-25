@@ -1,9 +1,9 @@
-# Phase 5 — BC warm start + RL with the IIG-paper recipe + a MOVING magnet.
+# BC warm start + RL with the IIG-paper recipe + a MOVING magnet.
 #
-# Why (see LOGBOOK Phase-5 "Paper review (Jun 15)", arXiv 2502.08938):
+# Why (arXiv 2502.08938):
 #   - v1/v2/v3-lean all collapsed: PPO drifts off the BC manifold -> critic wrong
 #     -> bad advantages -> death spiral.
-#   - The fixed KL-to-BC anchor (phase5_anchor_v2) STOPS the collapse but CAPS at
+#   - The fixed KL-to-BC anchor (kl_anchor_adaptive.yaml) STOPS the collapse but CAPS at
 #     BC, because exceeding BC means leaving the manifold a *fixed* magnet defends.
 #   - Fix: (a) tune PPO for the imperfect-information regime — much tighter trust
 #     region (clip 0.2 -> 0.05), higher entropy, lower value weight, low LR; and

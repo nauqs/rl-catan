@@ -1,9 +1,9 @@
 """CLI for Phase 1 training.
 
 Usage:
-    uv run python scripts/train.py --config configs/phase1.yaml
-    uv run python scripts/train.py --config configs/phase1.yaml --resume
-    uv run python scripts/train.py --config configs/phase1.yaml --total-timesteps 20000
+    uv run python scripts/train.py --config configs/ppo_baseline.yaml
+    uv run python scripts/train.py --config configs/ppo_baseline.yaml --resume
+    uv run python scripts/train.py --config configs/ppo_baseline.yaml --total-timesteps 20000
 """
 from __future__ import annotations
 

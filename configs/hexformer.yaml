@@ -1,4 +1,4 @@
-# Phase 4 v3 — Tile Transformer (HexFormer) + adaptive curriculum + redesigned reward.
+# Tile Transformer (HexFormer) + adaptive curriculum + redesigned reward.
 #
 # Builds on v2 (lr 1e-4 + 1M warmup + ent_coef 0.02, which fixed the optimization).
 # New in v3:

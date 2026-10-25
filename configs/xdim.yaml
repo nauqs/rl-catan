@@ -1,11 +1,11 @@
-# Phase 8 — PPO from scratch with the CROSS-DIMENSIONAL (Xdim) trunk.
+# PPO from scratch with the CROSS-DIMENSIONAL (Xdim) trunk.
 #
 # Architecture: catan_rl/features/xdim.py — board<->scalar information exchange via
 # inflation/deflation at every block (Gendre & Kaneko 2020), vs HexFormer's
 # concat-at-the-end. The board features can be modulated by player state (hand,
 # phase, robber, opponent achievements) and the global vector is board-aware.
 #
-# Hypers/curriculum = the from-scratch setup that worked best (phase6 s2/l2):
+# Hypers/curriculum = the from-scratch setup that worked best (ppo_scratch_iig.yaml):
 # fixed competent curriculum {weighted 0.3, value 0.2, self 0.5} (weighted bootstrap
 # + real value target + self-play, no eps-collapse), ent 0.02->0.01, clip 0.1, MMD
 # proximal 0.02, lr 1e-4 + 1M warmup, lean reward. Honest expectation: PPO likely

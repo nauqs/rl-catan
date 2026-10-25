@@ -1,3 +1,4 @@
+# Python
 .venv/
 __pycache__/
 *.egg-info/
@@ -5,21 +6,17 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-checkpoints/**
-wandb/
-*.json
-.DS_Store
-
-# Allow specific Phase-N artifacts back in: README, plots, ladder + analysis JSONs.
-!configs/*.json
-!checkpoints/
-!checkpoints/**/
-!checkpoints/**/README.md
-!checkpoints/**/plots/
-!checkpoints/**/plots/**
-!checkpoints/**/final_ladder.json
-!checkpoints/**/analysis_*.json
-
 # Rust build output
-rust/target/
-rust/*/target/
+target/
+
+# Training outputs, datasets and logs
+checkpoints/
+scripts/rust_train/runs/
+data/
+wandb/
+*.log
+*.zip
+*.pt
+*.npz
+
+.DS_Store
